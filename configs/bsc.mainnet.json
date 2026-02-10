@@ -1,0 +1,23 @@
+{
+    "network": "BSC Mainnet",
+    "chainId": 56,
+    "rpcUrl": "https://bsc-dataseed.bnbchain.org",
+    "router": {
+        "name": "PancakeSwap V2 Router",
+        "address": "0x10ED43C718714eb63d5aA57B78B54704E256024E"
+    },
+    "tokens": {
+        "WBNB": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "USDT": "0x55d398326f99059fF775485246999027B3197955"
+    },
+    "venus": {
+        "vUSDT": "0xfD5840Cd36d94D7229439859C0112a4185BC0255"
+    },
+    "policyDefaults": {
+        "maxDeadlineWindow": 1200,
+        "maxPathLength": 3,
+        "maxSwapAmountIn": "1000000000000000000000",
+        "maxApproveAmount": "500000000000000000000",
+        "maxRepayAmount": "500000000000000000000"
+    }
+}

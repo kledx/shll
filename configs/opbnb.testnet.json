@@ -1,0 +1,23 @@
+{
+    "network": "opBNB Testnet",
+    "chainId": 5611,
+    "rpcUrl": "https://opbnb-testnet-rpc.bnbchain.org",
+    "router": {
+        "name": "PancakeSwap V2 Router (Testnet)",
+        "address": "0x_ROUTER_ADDRESS_HERE"
+    },
+    "tokens": {
+        "WBNB": "0x_WBNB_ADDRESS_HERE",
+        "USDT": "0x_USDT_ADDRESS_HERE"
+    },
+    "venus": {
+        "vUSDT": "0x_VUSDT_ADDRESS_HERE"
+    },
+    "policyDefaults": {
+        "maxDeadlineWindow": 1200,
+        "maxPathLength": 3,
+        "maxSwapAmountIn": "1000000000000000000000",
+        "maxApproveAmount": "500000000000000000000",
+        "maxRepayAmount": "500000000000000000000"
+    }
+}
