@@ -4,14 +4,14 @@
   "rpcUrl": "https://opbnb-mainnet-rpc.bnbchain.org",
   "router": {
     "name": "PancakeSwap V2 Router",
-    "address": "0x_ROUTER_ADDRESS_HERE"
+    "address": "0x8cFe327CEc66d1C090Dd72bd0FF11d690C33a2Eb"
   },
   "tokens": {
-    "WBNB": "0x_WBNB_ADDRESS_HERE",
-    "USDT": "0x_USDT_ADDRESS_HERE"
+    "WBNB": "0x4200000000000000000000000000000000000006",
+    "USDT": "0x9e5AAC1Ba1a2e6aEd6b32689DFcF62A509Ca96f3"
   },
   "venus": {
-    "vUSDT": "0x_VUSDT_ADDRESS_HERE"
+    "vUSDT": "0xb7a01Ba126830692238521a1aA7E7A7509410b8e"
   },
   "policyDefaults": {
     "maxDeadlineWindow": 1200,

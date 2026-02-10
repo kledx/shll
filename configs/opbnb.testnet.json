@@ -4,14 +4,14 @@
     "rpcUrl": "https://opbnb-testnet-rpc.bnbchain.org",
     "router": {
         "name": "PancakeSwap V2 Router (Testnet)",
-        "address": "0x_ROUTER_ADDRESS_HERE"
+        "address": "0xD99D1c33F9fC3444f8101754aBC46c52416550D1"
     },
     "tokens": {
-        "WBNB": "0x_WBNB_ADDRESS_HERE",
-        "USDT": "0x_USDT_ADDRESS_HERE"
+        "WBNB": "0x4200000000000000000000000000000000000006",
+        "USDT": "0xefe0a89d48D6070776334e6F071bf31032dCe4e8"
     },
     "venus": {
-        "vUSDT": "0x_VUSDT_ADDRESS_HERE"
+        "vUSDT": "0xe3923805f6E117E51f5387421240a86EF1570abC"
     },
     "policyDefaults": {
         "maxDeadlineWindow": 1200,
