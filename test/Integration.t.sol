@@ -664,6 +664,120 @@ contract IntegrationTest is Test {
         assertTrue(nfa.supportsInterface(0x80ac58cd));
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //                 RENTAL GUARD TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_guard_gracePeriodBlocksOtherRenter() public {
+        // Owner sets 1-hour grace period for last renter
+        listing.setListingConfig(listingId, 0, 1 hours);
+
+        // Renter rents for 1 day
+        vm.prank(renter);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+
+        // Fast forward past lease expiry (1 day + 1 second)
+        vm.warp(block.timestamp + 1 days + 1);
+        assertEq(nfa.userOf(tokenId), address(0)); // lease expired
+
+        // Another user tries to rent during grace period — should be blocked
+        address renter2 = address(0xCAFE);
+        vm.deal(renter2, 10 ether);
+        vm.prank(renter2);
+        vm.expectRevert(); // GracePeriodActive
+        listing.rent{value: 0.1 ether}(listingId, 1);
+    }
+
+    function test_guard_lastRenterCanRentDuringGrace() public {
+        // Owner sets 1-hour grace period
+        listing.setListingConfig(listingId, 0, 1 hours);
+
+        // Renter rents for 1 day
+        vm.prank(renter);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+
+        // Fast forward past lease expiry (1 day + 1 second) but within grace
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Last renter CAN re-rent during grace period
+        vm.prank(renter);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+        assertEq(nfa.userOf(tokenId), renter);
+    }
+
+    function test_guard_anyoneCanRentAfterGrace() public {
+        // Owner sets 1-hour grace period
+        listing.setListingConfig(listingId, 0, 1 hours);
+
+        // Renter rents for 1 day
+        vm.prank(renter);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+
+        // Fast forward past lease expiry + grace period
+        vm.warp(block.timestamp + 1 days + 1 hours + 1);
+
+        // Anyone can now rent
+        address renter2 = address(0xCAFE);
+        vm.deal(renter2, 10 ether);
+        vm.prank(renter2);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+        assertEq(nfa.userOf(tokenId), renter2);
+    }
+
+    function test_guard_maxDaysEnforced() public {
+        // Owner sets maxDays = 3
+        listing.setListingConfig(listingId, 3, 0);
+
+        // Try to rent for 5 days — should fail
+        vm.prank(renter);
+        vm.expectRevert(); // MaxDaysExceeded
+        listing.rent{value: 0.5 ether}(listingId, 5);
+
+        // Rent for 3 days — should succeed
+        vm.prank(renter);
+        listing.rent{value: 0.3 ether}(listingId, 3);
+        assertEq(nfa.userOf(tokenId), renter);
+    }
+
+    function test_guard_noGracePeriodAllowsImmediateRerent() public {
+        // Default: no grace period configured
+
+        // Renter rents for 1 day
+        vm.prank(renter);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+
+        // Fast forward past expiry
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Anyone can rent immediately (no grace period)
+        address renter2 = address(0xCAFE);
+        vm.deal(renter2, 10 ether);
+        vm.prank(renter2);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+        assertEq(nfa.userOf(tokenId), renter2);
+    }
+
+    function test_guard_pauseRenting() public {
+        // Owner pauses renting
+        listing.pauseRenting(listingId);
+
+        // Renter tries to rent — should fail
+        vm.prank(renter);
+        vm.expectRevert(); // RentingPaused
+        listing.rent{value: 0.1 ether}(listingId, 1);
+    }
+
+    function test_guard_resumeRenting() public {
+        // Owner pauses then resumes renting
+        listing.pauseRenting(listingId);
+        listing.resumeRenting(listingId);
+
+        // Renter should be able to rent now
+        vm.prank(renter);
+        listing.rent{value: 0.1 ether}(listingId, 1);
+        assertEq(nfa.userOf(tokenId), renter);
+    }
+
     // allow this contract to receive ETH
     receive() external payable {}
 

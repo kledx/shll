@@ -47,4 +47,8 @@ library Errors {
     error MinDaysNotMet(uint32 requested, uint32 minimum);
     error AlreadyRented();
     error NotListingOwner();
+    error CooldownNotMet(uint256 availableAt, uint256 currentTime);
+    error RentingPaused();
+    error GracePeriodActive(address lastRenter, uint256 graceEndsAt);
+    error MaxDaysExceeded(uint32 requested, uint32 maximum);
 }
