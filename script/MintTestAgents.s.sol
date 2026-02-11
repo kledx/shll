@@ -47,7 +47,7 @@ contract MintTestAgents is Script {
             address(agentNFA),
             tokenId1,
             uint96(0.01 ether), // 0.01 BNB per day
-            1 days // Min duration
+            1 // Min duration
         );
         console.log("Listed Agent 1");
 
@@ -74,7 +74,7 @@ contract MintTestAgents is Script {
             address(agentNFA),
             tokenId2,
             uint96(0.005 ether),
-            1 days
+            1 // Min duration
         );
         console.log("Listed Agent 2");
 
