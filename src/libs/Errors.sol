@@ -15,6 +15,12 @@ library Errors {
     error OnlyOwner();
     error AccountAlreadySet();
 
+    // ─── BAP-578 Lifecycle ───
+    error AgentPaused(uint256 tokenId);
+    error AgentTerminated(uint256 tokenId);
+    error InvalidLogicAddress();
+    error TokenNotExist(uint256 tokenId);
+
     // ─── AgentAccount ───
     error OnlyNFA();
     error InsufficientBalance();

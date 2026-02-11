@@ -8,6 +8,8 @@ import {PolicyGuard} from "../src/PolicyGuard.sol";
 import {ListingManager} from "../src/ListingManager.sol";
 import {PolicyKeys} from "../src/libs/PolicyKeys.sol";
 import {Action} from "../src/types/Action.sol";
+import {IBAP578} from "../src/interfaces/IBAP578.sol";
+import {IERC4907} from "../src/interfaces/IERC4907.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @title MockERC20 — Minimal ERC20 for testing
@@ -41,7 +43,11 @@ contract MockERC20 {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         require(balanceOf[from] >= amount, "insufficient");
         require(allowance[from][msg.sender] >= amount, "allowance");
         balanceOf[from] -= amount;
@@ -51,7 +57,14 @@ contract MockERC20 {
     }
 }
 
-/// @title Integration Test — Full E2E flow
+/// @title MockLogicContract — Minimal contract for BAP-578 logicAddress tests
+contract MockLogicContract {
+    function version() external pure returns (string memory) {
+        return "1.0.0";
+    }
+}
+
+/// @title Integration Test — Full E2E flow + BAP-578 tests
 contract IntegrationTest is Test {
     AgentNFA public nfa;
     PolicyGuard public guard;
@@ -67,7 +80,23 @@ contract IntegrationTest is Test {
     address account;
     bytes32 listingId;
 
+    // Default empty metadata for existing tests
+    IBAP578.AgentMetadata emptyMetadata;
+
+    // Sample metadata for BAP-578 tests
+    IBAP578.AgentMetadata sampleMetadata;
+
     function setUp() public {
+        // Setup sample metadata
+        sampleMetadata = IBAP578.AgentMetadata({
+            persona: '{"style":"aggressive","risk":"medium"}',
+            experience: "DeFi swap specialist on BSC",
+            voiceHash: "QmVoiceHash123",
+            animationURI: "ipfs://QmAnimation456",
+            vaultURI: "ipfs://QmVault789",
+            vaultHash: keccak256("vault-content")
+        });
+
         // Deploy contracts
         guard = new PolicyGuard();
         nfa = new AgentNFA(address(guard));
@@ -87,8 +116,13 @@ contract IntegrationTest is Test {
         guard.setLimit(PolicyKeys.MAX_DEADLINE_WINDOW, 1200);
         guard.setLimit(PolicyKeys.MAX_PATH_LENGTH, 3);
 
-        // Mint an agent
-        tokenId = nfa.mintAgent(owner, bytes32("default"), "ipfs://agent1");
+        // Mint an agent with BAP-578 metadata
+        tokenId = nfa.mintAgent(
+            owner,
+            bytes32("default"),
+            "ipfs://agent1",
+            sampleMetadata
+        );
         account = nfa.accountOf(tokenId);
 
         // Create listing
@@ -131,7 +165,11 @@ contract IntegrationTest is Test {
         AgentAccount(payable(account)).depositToken(address(usdt), 200 ether);
 
         // Withdraw to self
-        AgentAccount(payable(account)).withdrawToken(address(usdt), 100 ether, renter);
+        AgentAccount(payable(account)).withdrawToken(
+            address(usdt),
+            100 ether,
+            renter
+        );
         vm.stopPrank();
 
         assertEq(usdt.balanceOf(renter), 900 ether); // 1000 - 200 + 100
@@ -154,10 +192,15 @@ contract IntegrationTest is Test {
 
         // Try to swap with `to` set to renter's address (MUST FAIL)
         address[] memory path = new address[](2);
-        path[0] = address(usdt); path[1] = address(usdt);
+        path[0] = address(usdt);
+        path[1] = address(usdt);
         bytes memory swapData = abi.encodeWithSelector(
             PolicyKeys.SWAP_EXACT_TOKENS,
-            100 ether, 90 ether, path, renter, block.timestamp + 600
+            100 ether,
+            90 ether,
+            path,
+            renter,
+            block.timestamp + 600
         );
         Action memory action = Action(ROUTER, 0, swapData);
 
@@ -173,7 +216,11 @@ contract IntegrationTest is Test {
 
         // Try to approve USDT to evil contract
         vm.startPrank(renter);
-        bytes memory approveData = abi.encodeWithSelector(PolicyKeys.APPROVE, evil, 1000 ether);
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            evil,
+            1000 ether
+        );
         Action memory action = Action(address(usdt), 0, approveData);
 
         vm.expectRevert(); // PolicyViolation: "Spender not allowed for this token"
@@ -188,7 +235,11 @@ contract IntegrationTest is Test {
 
         // Try infinite approval
         vm.startPrank(renter);
-        bytes memory approveData = abi.encodeWithSelector(PolicyKeys.APPROVE, ROUTER, type(uint256).max);
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            type(uint256).max
+        );
         Action memory action = Action(address(usdt), 0, approveData);
 
         vm.expectRevert(); // PolicyViolation: "Infinite approval not allowed"
@@ -208,7 +259,11 @@ contract IntegrationTest is Test {
 
         // Try withdraw to evil address
         vm.expectRevert(); // InvalidWithdrawRecipient
-        AgentAccount(payable(account)).withdrawToken(address(usdt), 100 ether, evil);
+        AgentAccount(payable(account)).withdrawToken(
+            address(usdt),
+            100 ether,
+            evil
+        );
         vm.stopPrank();
     }
 
@@ -225,7 +280,11 @@ contract IntegrationTest is Test {
 
         // Try to execute — should fail (renter is no longer active user)
         vm.startPrank(renter);
-        bytes memory approveData = abi.encodeWithSelector(PolicyKeys.APPROVE, ROUTER, 100 ether);
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
         Action memory action = Action(address(usdt), 0, approveData);
 
         vm.expectRevert(); // Unauthorized (userOf returns 0)
@@ -236,7 +295,11 @@ contract IntegrationTest is Test {
     function test_attack_nonRenterExecute() public {
         // Mint but do NOT rent — evil tries to execute directly
         vm.prank(evil);
-        bytes memory approveData = abi.encodeWithSelector(PolicyKeys.APPROVE, ROUTER, 100 ether);
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
         Action memory action = Action(address(usdt), 0, approveData);
 
         vm.expectRevert(); // Unauthorized
@@ -319,15 +382,12 @@ contract IntegrationTest is Test {
     }
 
     function test_nfa_ownerExecuteBypassesGuard() public {
-        // Owner can execute without PolicyGuard — even a target NOT in guard's allowlist
-        // We verify by checking that a non-whitelisted target works for owner
-        // but would fail for renter. Since we can't actually call a random address,
-        // we test the permission check by confirming owner doesn't get PolicyViolation.
-        // Use a whitelisted approve action (owner bypasses guard entirely)
-        bytes memory approveData = abi.encodeWithSelector(PolicyKeys.APPROVE, ROUTER, 100 ether);
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
         Action memory action = Action(address(usdt), 0, approveData);
-        // Owner executes — this calls AgentAccount.executeCall which calls usdt.approve
-        // Since the approve actually succeeds on MockERC20, this should work
         nfa.execute(tokenId, action);
     }
 
@@ -366,7 +426,7 @@ contract IntegrationTest is Test {
     function test_account_receiveNative() public {
         vm.deal(renter, 1 ether);
         vm.prank(renter);
-        (bool ok,) = account.call{value: 0.5 ether}("");
+        (bool ok, ) = account.call{value: 0.5 ether}("");
         assertTrue(ok);
         assertEq(account.balance, 0.5 ether);
     }
@@ -375,15 +435,245 @@ contract IntegrationTest is Test {
         usdt.mint(account, 100 ether);
 
         uint256 balBefore = usdt.balanceOf(owner);
-        AgentAccount(payable(account)).withdrawToken(address(usdt), 50 ether, owner);
+        AgentAccount(payable(account)).withdrawToken(
+            address(usdt),
+            50 ether,
+            owner
+        );
         assertEq(usdt.balanceOf(owner), balBefore + 50 ether);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: METADATA TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_getAgentMetadata() public view {
+        IBAP578.AgentMetadata memory meta = nfa.getAgentMetadata(tokenId);
+        assertEq(meta.persona, sampleMetadata.persona);
+        assertEq(meta.experience, sampleMetadata.experience);
+        assertEq(meta.voiceHash, sampleMetadata.voiceHash);
+        assertEq(meta.animationURI, sampleMetadata.animationURI);
+        assertEq(meta.vaultURI, sampleMetadata.vaultURI);
+        assertEq(meta.vaultHash, sampleMetadata.vaultHash);
+    }
+
+    function test_bap578_updateMetadata() public {
+        IBAP578.AgentMetadata memory newMeta = IBAP578.AgentMetadata({
+            persona: '{"style":"conservative","risk":"low"}',
+            experience: "DeFi lending specialist",
+            voiceHash: "QmNewVoice",
+            animationURI: "ipfs://QmNewAnim",
+            vaultURI: "ipfs://QmNewVault",
+            vaultHash: keccak256("new-vault")
+        });
+
+        nfa.updateAgentMetadata(tokenId, newMeta);
+
+        IBAP578.AgentMetadata memory fetched = nfa.getAgentMetadata(tokenId);
+        assertEq(fetched.persona, newMeta.persona);
+        assertEq(fetched.experience, newMeta.experience);
+    }
+
+    function test_bap578_updateMetadata_onlyOwner() public {
+        vm.prank(renter);
+        vm.expectRevert(); // OnlyOwner
+        nfa.updateAgentMetadata(tokenId, sampleMetadata);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: STATE TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_getState() public view {
+        IBAP578.State memory state = nfa.getState(tokenId);
+        assertEq(state.balance, 0); // no BNB in account yet
+        assertTrue(state.status == IBAP578.Status.Active);
+        assertEq(state.owner, owner);
+        assertEq(state.logicAddress, address(0));
+        assertEq(state.lastActionTimestamp, 0);
+    }
+
+    function test_bap578_getState_withBalance() public {
+        // Fund the agent account
+        vm.deal(address(this), 1 ether);
+        nfa.fundAgent{value: 0.5 ether}(tokenId);
+
+        IBAP578.State memory state = nfa.getState(tokenId);
+        assertEq(state.balance, 0.5 ether);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: FUND AGENT TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_fundAgent() public {
+        vm.deal(renter, 2 ether);
+        vm.prank(renter);
+        nfa.fundAgent{value: 1 ether}(tokenId);
+
+        assertEq(account.balance, 1 ether);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: LOGIC ADDRESS TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_setLogicAddress() public {
+        MockLogicContract logic = new MockLogicContract();
+        nfa.setLogicAddress(tokenId, address(logic));
+        assertEq(nfa.logicAddressOf(tokenId), address(logic));
+    }
+
+    function test_bap578_setLogicAddress_clear() public {
+        MockLogicContract logic = new MockLogicContract();
+        nfa.setLogicAddress(tokenId, address(logic));
+        nfa.setLogicAddress(tokenId, address(0)); // clear
+        assertEq(nfa.logicAddressOf(tokenId), address(0));
+    }
+
+    function test_bap578_setLogicAddress_rejectEOA() public {
+        // EOA (non-contract) should be rejected
+        vm.expectRevert(); // InvalidLogicAddress
+        nfa.setLogicAddress(tokenId, address(0xCAFE));
+    }
+
+    function test_bap578_setLogicAddress_onlyOwner() public {
+        MockLogicContract logic = new MockLogicContract();
+        vm.prank(renter);
+        vm.expectRevert(); // OnlyOwner
+        nfa.setLogicAddress(tokenId, address(logic));
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: LIFECYCLE TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_pauseAgent() public {
+        nfa.pauseAgent(tokenId);
+        assertTrue(nfa.agentStatus(tokenId) == IBAP578.Status.Paused);
+    }
+
+    function test_bap578_pauseAgent_blocksExecute() public {
+        nfa.pauseAgent(tokenId);
+
+        // Owner tries to execute on paused agent
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
+        Action memory action = Action(address(usdt), 0, approveData);
+
+        vm.expectRevert(); // AgentPaused
+        nfa.execute(tokenId, action);
+    }
+
+    function test_bap578_unpauseAgent() public {
+        nfa.pauseAgent(tokenId);
+        nfa.unpauseAgent(tokenId);
+        assertTrue(nfa.agentStatus(tokenId) == IBAP578.Status.Active);
+
+        // Should be able to execute again
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
+        Action memory action = Action(address(usdt), 0, approveData);
+        nfa.execute(tokenId, action);
+    }
+
+    function test_bap578_terminateAgent() public {
+        nfa.terminate(tokenId);
+        assertTrue(nfa.agentStatus(tokenId) == IBAP578.Status.Terminated);
+    }
+
+    function test_bap578_terminateAgent_blocksExecute() public {
+        nfa.terminate(tokenId);
+
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
+        Action memory action = Action(address(usdt), 0, approveData);
+
+        vm.expectRevert(); // AgentTerminated
+        nfa.execute(tokenId, action);
+    }
+
+    function test_bap578_terminateAgent_irreversible() public {
+        nfa.terminate(tokenId);
+
+        // Cannot unpause a terminated agent
+        vm.expectRevert(); // AgentTerminated
+        nfa.unpauseAgent(tokenId);
+
+        // Cannot pause again either (already terminated)
+        vm.expectRevert(); // AgentTerminated
+        nfa.pauseAgent(tokenId);
+    }
+
+    function test_bap578_pauseAgent_onlyOwner() public {
+        vm.prank(renter);
+        vm.expectRevert(); // OnlyOwner
+        nfa.pauseAgent(tokenId);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: EXECUTE ACTION TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_executeAction() public {
+        // Encode Action as bytes for BAP-578 interface
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
+        Action memory action = Action(address(usdt), 0, approveData);
+        bytes memory encodedAction = abi.encode(action);
+
+        nfa.executeAction(tokenId, encodedAction);
+    }
+
+    function test_bap578_executeAction_updatesTimestamp() public {
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
+        Action memory action = Action(address(usdt), 0, approveData);
+        bytes memory encodedAction = abi.encode(action);
+
+        vm.warp(12345);
+        nfa.executeAction(tokenId, encodedAction);
+
+        IBAP578.State memory state = nfa.getState(tokenId);
+        assertEq(state.lastActionTimestamp, 12345);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 BAP-578: INTERFACE SUPPORT
+    // ═══════════════════════════════════════════════════════════
+
+    function test_bap578_supportsInterface() public view {
+        assertTrue(nfa.supportsInterface(type(IBAP578).interfaceId));
+        assertTrue(nfa.supportsInterface(type(IERC4907).interfaceId));
+        // ERC-721 interface
+        assertTrue(nfa.supportsInterface(0x80ac58cd));
     }
 
     // allow this contract to receive ETH
     receive() external payable {}
 
     // allow this contract to receive ERC721
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external pure returns (bytes4) {
         return this.onERC721Received.selector;
     }
 }

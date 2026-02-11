@@ -1,12 +1,14 @@
 # shll — Decentralized AI Agent Rental Protocol
 
-> Secure, permissionless AI Agent leasing on BNB Chain (opBNB / BSC)
+> Secure, permissionless AI Agent leasing on BNB Chain (BSC)
 
 ## Overview
 
-shll enables AI Agent owners to rent out their agents via NFTs (ERC-721 + ERC-4907) while maintaining full asset security through an on-chain firewall — **PolicyGuard**.
+shll enables AI Agent owners to rent out their agents via NFTs (ERC-721 + ERC-4907 + **BAP-578**) while maintaining full asset security through an on-chain firewall — **PolicyGuard**.
 
 **Core idea**: Renters can use an AI Agent to execute DeFi operations (swap, approve, repay), but every action is validated against configurable allowlists and parameter constraints. The agent's funds stay in an isolated vault — renters can never drain them.
+
+**BAP-578 NFA Standard**: Each agent carries rich on-chain metadata (persona, experience, voiceHash, animationURI, vault), supports per-agent lifecycle management (Active / Paused / Terminated), and exposes a standardized `executeAction` entry point compliant with BNB Chain's Non-Fungible Agent specification.
 
 ## Architecture
 
@@ -14,8 +16,9 @@ shll enables AI Agent owners to rent out their agents via NFTs (ERC-721 + ERC-49
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │  Renter EOA  │────▶│   AgentNFA   │────▶│ PolicyGuard  │
 └──────────────┘     │  (ERC-721 +  │     │ (On-chain    │
-                     │   ERC-4907)  │     │  Firewall)   │
-                     └──────┬───────┘     └──────────────┘
+                     │  ERC-4907 +  │     │  Firewall)   │
+                     │  BAP-578)    │     └──────────────┘
+                     └──────┬───────┘
                             │
                      ┌──────▼───────┐     ┌──────────────┐
                      │ AgentAccount │────▶│  DeFi Target │
@@ -31,7 +34,7 @@ shll enables AI Agent owners to rent out their agents via NFTs (ERC-721 + ERC-49
 
 | Contract | Description |
 |----------|-------------|
-| **AgentNFA** | ERC-721 + ERC-4907 identity layer. Mint agents, manage rentals, route execution |
+| **AgentNFA** | ERC-721 + ERC-4907 + BAP-578 identity layer. Mint agents with rich metadata, manage rentals, per-agent lifecycle, route execution |
 | **AgentAccount** | Isolated vault per agent. Holds funds, executes calls (only via NFA) |
 | **PolicyGuard** | On-chain firewall. Validates swap/approve/repay with allowlists + limits |
 | **ListingManager** | Rental marketplace. Listing, payment, income withdrawal |
@@ -72,7 +75,7 @@ foundryup
 # Build
 forge build
 
-# Test (41 tests: 18 PolicyGuard + 23 Integration)
+# Test (61 tests: 18 PolicyGuard + 43 Integration)
 forge test
 
 # Test with verbosity
@@ -113,14 +116,14 @@ src/
 │   ├── Errors.sol             # Custom errors
 │   ├── CalldataDecoder.sol    # Calldata parsing
 │   └── PolicyKeys.sol         # Limit keys + selectors
-├── interfaces/                # IERC4907, IPolicyGuard, IAgentAccount, IAgentNFA
+├── interfaces/                # IBAP578, IERC4907, IPolicyGuard, IAgentAccount, IAgentNFA
 ├── PolicyGuard.sol            # On-chain firewall
 ├── AgentAccount.sol           # Isolated vault
-├── AgentNFA.sol               # ERC-721 + ERC-4907 identity
+├── AgentNFA.sol               # ERC-721 + ERC-4907 + BAP-578 identity
 └── ListingManager.sol         # Rental marketplace
 test/
 ├── PolicyGuard.t.sol          # 18 unit tests
-└── Integration.t.sol          # 23 E2E + attack scenario tests
+└── Integration.t.sol          # 43 E2E + BAP-578 + attack scenario tests
 script/
 ├── Deploy.s.sol               # Contract deployment
 └── ApplyPolicy.s.sol          # Policy configuration from JSON
@@ -133,7 +136,7 @@ configs/
 
 ## Test Coverage
 
-**41/41 tests passing** ✅
+**61/61 tests passing** ✅
 
 Attack scenarios validated:
 1. Swap output to renter EOA → **blocked**
@@ -143,6 +146,10 @@ Attack scenarios validated:
 5. Execute after lease expiry → **blocked**
 6. Non-renter execute → **blocked**
 7. Direct AgentAccount bypass → **blocked**
+
+## AI Development Logs
+
+This project uses AI-assisted development. Session logs documenting features built, process, and results are available in [`ailogs/`](./ailogs/).
 
 ## License
 
