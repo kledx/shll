@@ -102,7 +102,20 @@ configs/
 ├── opbnb.mainnet.json    # opBNB mainnet addresses
 ├── opbnb.testnet.json    # opBNB testnet addresses
 ├── bsc.mainnet.json      # BSC mainnet (PancakeSwap, Venus, WBNB, USDT)
+configs/
+├── opbnb.mainnet.json    # opBNB mainnet addresses
+├── opbnb.testnet.json    # opBNB testnet addresses
+├── bsc.mainnet.json      # BSC mainnet (PancakeSwap, Venus, WBNB, USDT)
 └── bsc.testnet.json      # BSC testnet addresses
+
+## Deployed Addresses (BSC Testnet)
+
+| Contract | Address |
+|----------|---------|
+| **PolicyGuard** | [`0xf087B0e4e829109603533FA3c81BAe101e46934b`](https://testnet.bscscan.com/address/0xf087B0e4e829109603533FA3c81BAe101e46934b) |
+| **AgentNFA** | [`0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6`](https://testnet.bscscan.com/address/0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6) |
+| **ListingManager** | [`0x71597c159007E9FF35bcF47822913cA78B182156`](https://testnet.bscscan.com/address/0x71597c159007E9FF35bcF47822913cA78B182156) |
+
 ```
 
 Each config contains router addresses, token addresses, Venus vToken addresses, and default policy limits.
