@@ -16,6 +16,7 @@ library PolicyKeys {
 
     // ─── Known selectors ───
     bytes4 constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens
-    bytes4 constant APPROVE = 0x095ea7b3;            // approve(address,uint256)
+    bytes4 constant SWAP_EXACT_ETH = 0x7ff36ab5; // swapExactETHForTokens
+    bytes4 constant APPROVE = 0x095ea7b3; // approve(address,uint256)
     bytes4 constant REPAY_BORROW_BEHALF = 0x2608f818; // repayBorrowBehalf(address,uint256)
 }

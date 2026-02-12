@@ -24,6 +24,7 @@ contract ApplyPolicy is Script {
         address router = vm.parseJsonAddress(json, ".router.address");
         guard.setTargetAllowed(router, true);
         guard.setSelectorAllowed(router, PolicyKeys.SWAP_EXACT_TOKENS, true);
+        guard.setSelectorAllowed(router, PolicyKeys.SWAP_EXACT_ETH, true);
         console.log("Router whitelisted:", router);
 
         // Parse and apply tokens
@@ -45,8 +46,14 @@ contract ApplyPolicy is Script {
         console.log("vUSDT whitelisted:", vUsdt);
 
         // Parse and apply limits
-        uint256 maxDeadline = vm.parseJsonUint(json, ".policyDefaults.maxDeadlineWindow");
-        uint256 maxPath = vm.parseJsonUint(json, ".policyDefaults.maxPathLength");
+        uint256 maxDeadline = vm.parseJsonUint(
+            json,
+            ".policyDefaults.maxDeadlineWindow"
+        );
+        uint256 maxPath = vm.parseJsonUint(
+            json,
+            ".policyDefaults.maxPathLength"
+        );
         guard.setLimit(PolicyKeys.MAX_DEADLINE_WINDOW, maxDeadline);
         guard.setLimit(PolicyKeys.MAX_PATH_LENGTH, maxPath);
         console.log("Limits applied");

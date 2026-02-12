@@ -25,9 +25,17 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
 
     // ─── Events ───
     event TargetUpdated(address indexed target, bool allowed);
-    event SelectorUpdated(address indexed target, bytes4 indexed selector, bool allowed);
+    event SelectorUpdated(
+        address indexed target,
+        bytes4 indexed selector,
+        bool allowed
+    );
     event TokenUpdated(address indexed token, bool allowed);
-    event SpenderUpdated(address indexed token, address indexed spender, bool allowed);
+    event SpenderUpdated(
+        address indexed token,
+        address indexed spender,
+        bool allowed
+    );
     event LimitUpdated(bytes32 indexed key, uint256 value);
 
     constructor() {
@@ -36,7 +44,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         limits[PolicyKeys.MAX_PATH_LENGTH] = 3;
         limits[PolicyKeys.MAX_SWAP_AMOUNT_IN] = type(uint256).max; // no limit by default
         limits[PolicyKeys.MAX_APPROVE_AMOUNT] = type(uint256).max; // no limit by default
-        limits[PolicyKeys.MAX_REPAY_AMOUNT] = type(uint256).max;   // no limit by default
+        limits[PolicyKeys.MAX_REPAY_AMOUNT] = type(uint256).max; // no limit by default
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -48,7 +56,11 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         emit TargetUpdated(target, allowed);
     }
 
-    function setSelectorAllowed(address target, bytes4 selector, bool allowed) external onlyOwner {
+    function setSelectorAllowed(
+        address target,
+        bytes4 selector,
+        bool allowed
+    ) external onlyOwner {
         selectorAllowed[target][selector] = allowed;
         emit SelectorUpdated(target, selector, allowed);
     }
@@ -58,7 +70,11 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         emit TokenUpdated(token, allowed);
     }
 
-    function setSpenderAllowed(address token, address spender, bool allowed) external onlyOwner {
+    function setSpenderAllowed(
+        address token,
+        address spender,
+        bool allowed
+    ) external onlyOwner {
         spenderAllowed[token][spender] = allowed;
         emit SpenderUpdated(token, spender, allowed);
     }
@@ -102,6 +118,8 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         // 3. Dispatch to parameter-level validation by selector
         if (selector == PolicyKeys.SWAP_EXACT_TOKENS) {
             return _validateSwap(agentAccount, action.data);
+        } else if (selector == PolicyKeys.SWAP_EXACT_ETH) {
+            return _validateSwapETH(agentAccount, action.data, action.value);
         } else if (selector == PolicyKeys.APPROVE) {
             return _validateApprove(action.target, action.data);
         } else if (selector == PolicyKeys.REPAY_BORROW_BEHALF) {
@@ -117,13 +135,17 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     // ═══════════════════════════════════════════════════════════
 
     /// @dev Validate swapExactTokensForTokens parameters
-    function _validateSwap(address agentAccount, bytes calldata data)
-        internal
-        view
-        returns (bool, string memory)
-    {
-        (uint256 amountIn,, address[] memory path, address to, uint256 deadline) =
-            CalldataDecoder.decodeSwap(data);
+    function _validateSwap(
+        address agentAccount,
+        bytes calldata data
+    ) internal view returns (bool, string memory) {
+        (
+            uint256 amountIn,
+            ,
+            address[] memory path,
+            address to,
+            uint256 deadline
+        ) = CalldataDecoder.decodeSwap(data);
 
         // CRITICAL: swap output must go to AgentAccount, not renter's EOA
         if (to != agentAccount) {
@@ -131,7 +153,8 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         }
 
         // Deadline window check
-        uint256 maxDeadline = block.timestamp + limits[PolicyKeys.MAX_DEADLINE_WINDOW];
+        uint256 maxDeadline = block.timestamp +
+            limits[PolicyKeys.MAX_DEADLINE_WINDOW];
         if (deadline > maxDeadline) {
             return (false, "Deadline too far in the future");
         }
@@ -157,12 +180,57 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         return (true, "");
     }
 
+    /// @dev Validate swapExactETHForTokens parameters
+    function _validateSwapETH(
+        address agentAccount,
+        bytes calldata data,
+        uint256 value
+    ) internal view returns (bool, string memory) {
+        (
+            ,
+            address[] memory path,
+            address to,
+            uint256 deadline
+        ) = CalldataDecoder.decodeSwapETH(data);
+
+        // recipient check
+        if (to != agentAccount)
+            return (false, "Swap recipient must be AgentAccount");
+
+        // Deadline check
+        if (
+            deadline > block.timestamp + limits[PolicyKeys.MAX_DEADLINE_WINDOW]
+        ) {
+            return (false, "Deadline too far in the future");
+        }
+
+        // Path length check
+        if (path.length > limits[PolicyKeys.MAX_PATH_LENGTH]) {
+            return (false, "Swap path too long");
+        }
+
+        // Token allowlist check
+        for (uint256 i = 0; i < path.length; i++) {
+            if (!tokenAllowed[path[i]])
+                return (false, "Token in path not allowed");
+            // Native swap path MUST start with WBNB, but router enforces that.
+            // PolicyGuard only cares if the tokens are allowed.
+        }
+
+        // Amount limit check (using msg.value from action)
+        uint256 maxAmount = limits[PolicyKeys.MAX_SWAP_AMOUNT_IN];
+        if (maxAmount != type(uint256).max && value > maxAmount) {
+            return (false, "Swap amount exceeds limit");
+        }
+
+        return (true, "");
+    }
+
     /// @dev Validate approve parameters
-    function _validateApprove(address token, bytes calldata data)
-        internal
-        view
-        returns (bool, string memory)
-    {
+    function _validateApprove(
+        address token,
+        bytes calldata data
+    ) internal view returns (bool, string memory) {
         (address spender, uint256 amount) = CalldataDecoder.decodeApprove(data);
 
         // Token must be in allowlist (target is the token contract)
@@ -190,12 +258,13 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     }
 
     /// @dev Validate repayBorrowBehalf parameters
-    function _validateRepay(address nfa, uint256 tokenId, bytes calldata data)
-        internal
-        view
-        returns (bool, string memory)
-    {
-        (address borrower, uint256 repayAmount) = CalldataDecoder.decodeRepayBorrowBehalf(data);
+    function _validateRepay(
+        address nfa,
+        uint256 tokenId,
+        bytes calldata data
+    ) internal view returns (bool, string memory) {
+        (address borrower, uint256 repayAmount) = CalldataDecoder
+            .decodeRepayBorrowBehalf(data);
 
         // borrower MUST be the current renter (userOf)
         address currentRenter = IAgentNFA(nfa).userOf(tokenId);
