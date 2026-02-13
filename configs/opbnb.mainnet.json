@@ -18,6 +18,72 @@
     "maxPathLength": 3,
     "maxSwapAmountIn": "1000000000000000000000",
     "maxApproveAmount": "500000000000000000000",
-    "maxRepayAmount": "500000000000000000000"
+    "maxRepayAmount": "500000000000000000000",
+    "maxSlippageBps": 300
+  },
+  "policyBundle": {
+    "targets": [
+      {
+        "address": "{{router.address}}",
+        "label": "PancakeSwap V2 Router",
+        "category": "swap"
+      },
+      {
+        "address": "{{venus.vUSDT}}",
+        "label": "Venus vUSDT",
+        "category": "lending"
+      }
+    ],
+    "selectors": [
+      {
+        "target": "{{router.address}}",
+        "selector": "0x38ed1739",
+        "label": "swapExactTokensForTokens",
+        "category": "swap"
+      },
+      {
+        "target": "{{router.address}}",
+        "selector": "0x8803dbee",
+        "label": "swapTokensForExactTokens",
+        "category": "swap"
+      },
+      {
+        "target": "{{venus.vUSDT}}",
+        "selector": "0x0e752702",
+        "label": "repayBorrow",
+        "category": "lending"
+      }
+    ],
+    "tokens": [
+      {
+        "address": "{{tokens.WBNB}}",
+        "symbol": "WBNB",
+        "allowSwap": true,
+        "allowApprove": true
+      },
+      {
+        "address": "{{tokens.USDT}}",
+        "symbol": "USDT",
+        "allowSwap": true,
+        "allowApprove": true
+      }
+    ],
+    "spenders": [
+      {
+        "token": "{{tokens.WBNB}}",
+        "spender": "{{router.address}}",
+        "label": "WBNB -> Router"
+      },
+      {
+        "token": "{{tokens.USDT}}",
+        "spender": "{{router.address}}",
+        "label": "USDT -> Router"
+      },
+      {
+        "token": "{{tokens.USDT}}",
+        "spender": "{{venus.vUSDT}}",
+        "label": "USDT -> vUSDT"
+      }
+    ]
   }
 }

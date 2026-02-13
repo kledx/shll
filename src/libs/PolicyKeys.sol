@@ -16,6 +16,8 @@ library PolicyKeys {
 
     // ─── Slippage limits ───
     bytes32 constant MAX_SLIPPAGE_BPS = keccak256("MAX_SLIPPAGE_BPS");
+    bytes32 constant MAX_PRICE_IMPACT_BPS = keccak256("MAX_PRICE_IMPACT_BPS");
+    bytes32 constant SLIPPAGE_CHECK_MODE = keccak256("SLIPPAGE_CHECK_MODE");
 
     // ─── Known selectors ───
     bytes4 constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens

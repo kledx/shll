@@ -6,6 +6,15 @@ import {IBAP578} from "./IBAP578.sol";
 
 /// @title IAgentNFA — Agent Non-Fungible Asset interface (BAP-578 + ERC-4907)
 interface IAgentNFA {
+    struct OperatorPermit {
+        uint256 tokenId;
+        address renter;
+        address operator;
+        uint64 expires;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
     // ─── Events ───
     event AgentMinted(
         uint256 indexed tokenId,
@@ -54,6 +63,19 @@ interface IAgentNFA {
     function setUser(uint256 tokenId, address user, uint64 expires) external;
     function userOf(uint256 tokenId) external view returns (address);
     function userExpires(uint256 tokenId) external view returns (uint256);
+    function setOperator(
+        uint256 tokenId,
+        address operator,
+        uint64 opExpires
+    ) external;
+    function setOperatorWithSig(
+        OperatorPermit calldata permit,
+        bytes calldata sig
+    ) external;
+    function clearOperator(uint256 tokenId) external;
+    function operatorOf(uint256 tokenId) external view returns (address);
+    function operatorExpiresOf(uint256 tokenId) external view returns (uint256);
+    function operatorNonceOf(uint256 tokenId) external view returns (uint256);
 
     // ─── Views ───
     function accountOf(uint256 tokenId) external view returns (address);

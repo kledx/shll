@@ -26,6 +26,9 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     // ─── Router for on-chain quote (slippage check) ───
     address public router;
 
+    // ─── Fee-on-transfer tokens (skip slippage check) ───
+    mapping(address => bool) public feeOnTransferTokens;
+
     // ─── Events ───
     event TargetUpdated(address indexed target, bool allowed);
     event SelectorUpdated(
@@ -41,6 +44,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     );
     event LimitUpdated(bytes32 indexed key, uint256 value);
     event RouterUpdated(address indexed newRouter);
+    event FeeOnTransferTokenUpdated(address indexed token, bool isFeeOnTransfer);
 
     constructor() {
         // Set sensible defaults
@@ -50,6 +54,8 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         limits[PolicyKeys.MAX_APPROVE_AMOUNT] = type(uint256).max; // no limit by default
         limits[PolicyKeys.MAX_REPAY_AMOUNT] = type(uint256).max; // no limit by default
         limits[PolicyKeys.MAX_SLIPPAGE_BPS] = 300; // 3% default
+        limits[PolicyKeys.MAX_PRICE_IMPACT_BPS] = 5000; // 50% default (flash crash detection)
+        limits[PolicyKeys.SLIPPAGE_CHECK_MODE] = 2; // 0=disabled, 1=warning, 2=strict (default)
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -92,6 +98,11 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     function setRouter(address _router) external onlyOwner {
         router = _router;
         emit RouterUpdated(_router);
+    }
+
+    function setFeeOnTransferToken(address token, bool isFeeOnTransfer) external onlyOwner {
+        feeOnTransferTokens[token] = isFeeOnTransfer;
+        emit FeeOnTransferTokenUpdated(token, isFeeOnTransfer);
     }
 
     function pause() external onlyOwner {
@@ -338,6 +349,23 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         address[] memory path,
         uint256 maxSlippageBps
     ) internal view returns (bool, string memory) {
+        // Check slippage mode
+        uint256 mode = limits[PolicyKeys.SLIPPAGE_CHECK_MODE];
+        if (mode == 0) {
+            return (true, ""); // Disabled
+        }
+
+        // Check if any token in path is fee-on-transfer
+        for (uint256 i = 0; i < path.length; i++) {
+            if (feeOnTransferTokens[path[i]]) {
+                // Skip slippage check for fee-on-transfer tokens
+                if (amountOutMin == 0) {
+                    return (false, "amountOutMin is zero");
+                }
+                return (true, "");
+            }
+        }
+
         // Call router.getAmountsOut(amountIn, path)
         // Using low-level call to handle revert gracefully
         bytes memory callPayload = abi.encodeWithSelector(
@@ -350,17 +378,38 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
             callPayload
         );
 
-        if (!success || returnData.length < 64) {
-            // Quote failed — pair may not exist or path is invalid
-            return (false, "Quote unavailable");
+        if (!success) {
+            return (false, "Quote failed: pair may not exist");
+        }
+
+        if (returnData.length < 64) {
+            return (false, "Quote failed: invalid return data");
         }
 
         // Decode the amounts array — last element is the expected output
         uint256[] memory amounts = abi.decode(returnData, (uint256[]));
+
+        // Validate amounts array length matches path length
+        if (amounts.length != path.length) {
+            return (false, "Quote failed: path length mismatch");
+        }
+
         uint256 quoteOut = amounts[amounts.length - 1];
 
         if (quoteOut == 0) {
-            return (false, "Quote returned zero");
+            return (false, "Quote returned zero: no liquidity");
+        }
+
+        // Flash crash detection: check price impact
+        uint256 maxPriceImpact = limits[PolicyKeys.MAX_PRICE_IMPACT_BPS];
+        if (maxPriceImpact > 0 && maxPriceImpact < 10000) {
+            // Calculate price impact: (quoteOut - amountOutMin) / quoteOut * 10000
+            if (quoteOut > amountOutMin) {
+                uint256 priceImpact = ((quoteOut - amountOutMin) * 10000) / quoteOut;
+                if (priceImpact > maxPriceImpact) {
+                    return (false, "Price impact too high: possible flash crash");
+                }
+            }
         }
 
         // Check: amountOutMin * 10000 >= quoteOut * (10000 - maxSlippageBps)

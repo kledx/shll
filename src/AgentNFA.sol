@@ -7,6 +7,8 @@ import {
 } from "openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/security/Pausable.sol";
+import {EIP712} from "openzeppelin-contracts/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 import {IERC4907} from "./interfaces/IERC4907.sol";
 import {IBAP578} from "./interfaces/IBAP578.sol";
 
@@ -25,7 +27,8 @@ contract AgentNFA is
     IERC4907,
     IBAP578,
     Ownable,
-    Pausable
+    Pausable,
+    EIP712
 {
     // ─── State ───
     uint256 private _nextTokenId;
@@ -66,6 +69,23 @@ contract AgentNFA is
     /// @notice tokenId => operator authorization expiry
     mapping(uint256 => uint64) private _operatorExpires;
 
+    /// @notice tokenId => operator permit nonce (for anti-replay)
+    mapping(uint256 => uint256) private _operatorNonces;
+
+    bytes32 private constant OPERATOR_PERMIT_TYPEHASH =
+        keccak256(
+            "OperatorPermit(uint256 tokenId,address renter,address operator,uint64 expires,uint256 nonce,uint256 deadline)"
+        );
+
+    struct OperatorPermit {
+        uint256 tokenId;
+        address renter;
+        address operator;
+        uint64 expires;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
     // ─── Events (from IAgentNFA) ───
     event AgentMinted(
         uint256 indexed tokenId,
@@ -97,8 +117,12 @@ contract AgentNFA is
         address indexed operator,
         uint64 expires
     );
+    event OperatorCleared(uint256 indexed tokenId, address indexed caller);
 
-    constructor(address _policyGuard) ERC721("ShellAgent", "SHLL") {
+    constructor(address _policyGuard)
+        ERC721("ShellAgent", "SHLL")
+        EIP712("SHLL AgentNFA", "1")
+    {
         if (_policyGuard == address(0)) revert Errors.ZeroAddress();
         policyGuard = _policyGuard;
     }
@@ -204,9 +228,55 @@ contract AgentNFA is
         if (msg.sender != renter) revert Errors.Unauthorized();
         if (opExpires > _userExpires[tokenId])
             revert Errors.OperatorExceedsLease();
-        _operators[tokenId] = operator;
-        _operatorExpires[tokenId] = opExpires;
-        emit OperatorSet(tokenId, operator, opExpires);
+        _setOperator(tokenId, operator, opExpires);
+    }
+
+    /// @notice Set operator via EIP-712 renter signature (runner pays gas)
+    function setOperatorWithSig(
+        OperatorPermit calldata permit,
+        bytes calldata sig
+    ) external {
+        if (block.timestamp > permit.deadline) revert Errors.SignatureExpired();
+        if (msg.sender != permit.operator)
+            revert Errors.InvalidOperatorSubmitter();
+
+        address renter = userOf(permit.tokenId);
+        if (renter == address(0) || renter != permit.renter)
+            revert Errors.Unauthorized();
+        if (permit.expires > _userExpires[permit.tokenId])
+            revert Errors.OperatorExceedsLease();
+
+        uint256 expectedNonce = _operatorNonces[permit.tokenId];
+        if (permit.nonce != expectedNonce) revert Errors.InvalidNonce();
+
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    OPERATOR_PERMIT_TYPEHASH,
+                    permit.tokenId,
+                    permit.renter,
+                    permit.operator,
+                    permit.expires,
+                    permit.nonce,
+                    permit.deadline
+                )
+            )
+        );
+        address signer = ECDSA.recover(digest, sig);
+        if (signer != permit.renter) revert Errors.InvalidSigner();
+
+        _operatorNonces[permit.tokenId] = expectedNonce + 1;
+        _setOperator(permit.tokenId, permit.operator, permit.expires);
+    }
+
+    /// @notice Clear the current operator authorization
+    function clearOperator(uint256 tokenId) external {
+        address tokenOwner = ownerOf(tokenId);
+        address renter = userOf(tokenId);
+        if (msg.sender != tokenOwner && msg.sender != renter)
+            revert Errors.Unauthorized();
+        _setOperator(tokenId, address(0), 0);
+        emit OperatorCleared(tokenId, msg.sender);
     }
 
     /// @notice Get current operator (returns address(0) if expired)
@@ -215,6 +285,14 @@ contract AgentNFA is
             return _operators[tokenId];
         }
         return address(0);
+    }
+
+    function operatorExpiresOf(uint256 tokenId) external view returns (uint256) {
+        return _operatorExpires[tokenId];
+    }
+
+    function operatorNonceOf(uint256 tokenId) external view returns (uint256) {
+        return _operatorNonces[tokenId];
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -507,6 +585,16 @@ contract AgentNFA is
         }
 
         revert Errors.Unauthorized();
+    }
+
+    function _setOperator(
+        uint256 tokenId,
+        address operator,
+        uint64 opExpires
+    ) internal {
+        _operators[tokenId] = operator;
+        _operatorExpires[tokenId] = opExpires;
+        emit OperatorSet(tokenId, operator, opExpires);
     }
 
     // ─── ERC721 overrides (OZ v4 requires these) ───

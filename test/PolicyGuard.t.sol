@@ -570,4 +570,218 @@ contract PolicyGuardTest is Test {
             abi.encode(amounts)
         );
     }
+
+    function _mockGetAmountsOut3Hop(
+        uint256 amountIn,
+        uint256 expectedOut
+    ) internal {
+        address DAI = address(0x8888);
+        address[] memory path = new address[](3);
+        path[0] = USDT;
+        path[1] = WBNB;
+        path[2] = DAI;
+
+        uint256[] memory amounts = new uint256[](3);
+        amounts[0] = amountIn;
+        amounts[1] = amountIn * 95 / 100;
+        amounts[2] = expectedOut;
+
+        vm.mockCall(
+            ROUTER,
+            abi.encodeWithSelector(bytes4(0xd06ca61f), amountIn, path),
+            abi.encode(amounts)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //          NEW SLIPPAGE ENHANCEMENT TESTS
+    // ═══════════════════════════════════════════════════════════
+
+    /// @dev Test: Quote path length mismatch should fail
+    function test_swap_quotePathLengthMismatch() public {
+        address[] memory path = new address[](2);
+        path[0] = USDT;
+        path[1] = WBNB;
+
+        // Mock returns wrong array length (3 instead of 2)
+        uint256[] memory wrongAmounts = new uint256[](3);
+        wrongAmounts[0] = 100 ether;
+        wrongAmounts[1] = 95 ether;
+        wrongAmounts[2] = 90 ether;
+
+        vm.mockCall(
+            ROUTER,
+            abi.encodeWithSelector(bytes4(0xd06ca61f), uint256(100 ether), path),
+            abi.encode(wrongAmounts)
+        );
+
+        Action memory action = _buildSwapAction(
+            100 ether,
+            90 ether,
+            ACCOUNT,
+            block.timestamp + 600
+        );
+
+        (bool ok, string memory reason) = guard.validate(
+            NFA,
+            TOKEN_ID,
+            ACCOUNT,
+            RENTER,
+            action
+        );
+
+        assertFalse(ok);
+        assertEq(reason, "Quote failed: path length mismatch");
+    }
+
+    /// @dev Test: Price impact too high (flash crash detection)
+    function test_swap_priceImpactTooHigh() public {
+        // Mock quote returns 100 ether, but user sets amountOutMin = 40 ether
+        // Price impact = (100 - 40) / 100 * 10000 = 6000 bps = 60%
+        // Should be rejected (max 50%)
+        _mockGetAmountsOut(100 ether, 100 ether);
+
+        Action memory action = _buildSwapAction(
+            100 ether,
+            40 ether, // 60% price impact
+            ACCOUNT,
+            block.timestamp + 600
+        );
+
+        (bool ok, string memory reason) = guard.validate(
+            NFA,
+            TOKEN_ID,
+            ACCOUNT,
+            RENTER,
+            action
+        );
+
+        assertFalse(ok);
+        assertEq(reason, "Price impact too high: possible flash crash");
+    }
+
+    /// @dev Test: Fee-on-transfer token skips slippage check
+    function test_swap_feeOnTransferTokenSkipsSlippageCheck() public {
+        // Mark USDT as fee-on-transfer token
+        guard.setFeeOnTransferToken(USDT, true);
+
+        // Don't mock getAmountsOut - it shouldn't be called
+        // But amountOutMin must be > 0
+        Action memory action = _buildSwapAction(
+            100 ether,
+            1 ether, // Non-zero
+            ACCOUNT,
+            block.timestamp + 600
+        );
+
+        (bool ok, string memory reason) = guard.validate(
+            NFA,
+            TOKEN_ID,
+            ACCOUNT,
+            RENTER,
+            action
+        );
+
+        assertTrue(ok);
+        assertEq(reason, "");
+    }
+
+    /// @dev Test: Fee-on-transfer token with zero amountOutMin should fail
+    function test_swap_feeOnTransferTokenZeroAmountOutMin() public {
+        guard.setFeeOnTransferToken(USDT, true);
+
+        Action memory action = _buildSwapAction(
+            100 ether,
+            0, // Zero - should fail
+            ACCOUNT,
+            block.timestamp + 600
+        );
+
+        (bool ok, string memory reason) = guard.validate(
+            NFA,
+            TOKEN_ID,
+            ACCOUNT,
+            RENTER,
+            action
+        );
+
+        assertFalse(ok);
+        assertEq(reason, "amountOutMin is zero");
+    }
+
+    /// @dev Test: Three-hop path works correctly
+    function test_swap_threeHopPath() public {
+        address DAI = address(0x8888);
+
+        // Add DAI to allowlists
+        guard.setTokenAllowed(DAI, true);
+
+        // Build 3-hop swap: USDT -> WBNB -> DAI
+        address[] memory path = new address[](3);
+        path[0] = USDT;
+        path[1] = WBNB;
+        path[2] = DAI;
+
+        uint256 amountIn = 100 ether;
+        uint256 amountOutMin = 90 ether;
+
+        // Mock 3-hop quote
+        uint256[] memory amounts = new uint256[](3);
+        amounts[0] = amountIn;
+        amounts[1] = 95 ether;
+        amounts[2] = 92 ether; // Final output
+
+        vm.mockCall(
+            ROUTER,
+            abi.encodeWithSelector(bytes4(0xd06ca61f), amountIn, path),
+            abi.encode(amounts)
+        );
+
+        bytes memory data = abi.encodeWithSelector(
+            PolicyKeys.SWAP_EXACT_TOKENS,
+            amountIn,
+            amountOutMin,
+            path,
+            ACCOUNT,
+            block.timestamp + 600
+        );
+
+        Action memory action = Action(ROUTER, 0, data);
+
+        (bool ok, string memory reason) = guard.validate(
+            NFA,
+            TOKEN_ID,
+            ACCOUNT,
+            RENTER,
+            action
+        );
+
+        assertTrue(ok);
+        assertEq(reason, "");
+    }
+
+    /// @dev Test: Slippage check mode can be disabled
+    function test_swap_slippageCheckDisabled() public {
+        // Disable slippage check
+        guard.setLimit(PolicyKeys.SLIPPAGE_CHECK_MODE, 0);
+
+        // Don't mock getAmountsOut - it shouldn't be called
+        Action memory action = _buildSwapAction(
+            100 ether,
+            0, // Even zero should pass when disabled
+            ACCOUNT,
+            block.timestamp + 600
+        );
+
+        (bool ok, string memory reason) = guard.validate(
+            NFA,
+            TOKEN_ID,
+            ACCOUNT,
+            RENTER,
+            action
+        );
+
+        assertTrue(ok);
+        assertEq(reason, "");
+    }
 }

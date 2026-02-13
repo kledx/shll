@@ -14,6 +14,10 @@ library Errors {
     error OnlyListingManager();
     error OnlyOwner();
     error OperatorExceedsLease();
+    error SignatureExpired();
+    error InvalidSigner();
+    error InvalidNonce();
+    error InvalidOperatorSubmitter();
     error AccountAlreadySet();
 
     // ─── BAP-578 Lifecycle ───
