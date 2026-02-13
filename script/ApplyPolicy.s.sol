@@ -32,6 +32,8 @@ contract ApplyPolicy is Script {
         address usdt = vm.parseJsonAddress(json, ".tokens.USDT");
         guard.setTokenAllowed(wbnb, true);
         guard.setTokenAllowed(usdt, true);
+        guard.setTargetAllowed(wbnb, true);
+        guard.setSelectorAllowed(wbnb, PolicyKeys.APPROVE, true);
         guard.setTargetAllowed(usdt, true);
         guard.setSelectorAllowed(usdt, PolicyKeys.APPROVE, true);
         guard.setSpenderAllowed(usdt, router, true);

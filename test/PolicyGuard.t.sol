@@ -27,15 +27,18 @@ contract PolicyGuardTest is Test {
         // Setup allowlists
         guard.setTargetAllowed(ROUTER, true);
         guard.setTargetAllowed(USDT, true);
+        guard.setTargetAllowed(WBNB, true);
         guard.setTargetAllowed(V_USDT, true);
 
         guard.setSelectorAllowed(ROUTER, PolicyKeys.SWAP_EXACT_TOKENS, true);
         guard.setSelectorAllowed(USDT, PolicyKeys.APPROVE, true);
+        guard.setSelectorAllowed(WBNB, PolicyKeys.APPROVE, true);
         guard.setSelectorAllowed(V_USDT, PolicyKeys.REPAY_BORROW_BEHALF, true);
 
         guard.setTokenAllowed(USDT, true);
         guard.setTokenAllowed(WBNB, true);
         guard.setSpenderAllowed(USDT, ROUTER, true);
+        guard.setSpenderAllowed(WBNB, ROUTER, true);
 
         // Set limits
         guard.setLimit(PolicyKeys.MAX_DEADLINE_WINDOW, 1200);
@@ -111,6 +114,12 @@ contract PolicyGuardTest is Test {
         Action memory action = _buildApproveAction(USDT, ROUTER, 100 ether);
         (bool ok, ) = guard.validate(NFA, TOKEN_ID, ACCOUNT, RENTER, action);
         assertTrue(ok, "Valid approve should pass");
+    }
+
+    function test_approve_wbnb_valid() public view {
+        Action memory action = _buildApproveAction(WBNB, ROUTER, 100 ether);
+        (bool ok, ) = guard.validate(NFA, TOKEN_ID, ACCOUNT, RENTER, action);
+        assertTrue(ok, "Valid WBNB approve should pass");
     }
 
     function test_approve_infiniteNotAllowed() public view {
