@@ -14,6 +14,9 @@ library PolicyKeys {
     // ─── Repay limits ───
     bytes32 constant MAX_REPAY_AMOUNT = keccak256("MAX_REPAY_AMOUNT");
 
+    // ─── Slippage limits ───
+    bytes32 constant MAX_SLIPPAGE_BPS = keccak256("MAX_SLIPPAGE_BPS");
+
     // ─── Known selectors ───
     bytes4 constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens
     bytes4 constant SWAP_EXACT_ETH = 0x7ff36ab5; // swapExactETHForTokens

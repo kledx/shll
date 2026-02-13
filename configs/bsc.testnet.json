@@ -1,4 +1,9 @@
 {
+    "meta": {
+        "policyVersion": "1.2.0",
+        "updatedAt": "2026-02-13",
+        "author": "deployer"
+    },
     "network": "BSC Testnet",
     "chainId": 97,
     "rpcUrl": "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
@@ -18,6 +23,7 @@
         "maxPathLength": 3,
         "maxSwapAmountIn": "1000000000000000000000",
         "maxApproveAmount": "500000000000000000000",
-        "maxRepayAmount": "500000000000000000000"
+        "maxRepayAmount": "500000000000000000000",
+        "maxSlippageBps": 300
     }
 }

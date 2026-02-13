@@ -23,6 +23,9 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     // ─── Limits ───
     mapping(bytes32 => uint256) public limits;
 
+    // ─── Router for on-chain quote (slippage check) ───
+    address public router;
+
     // ─── Events ───
     event TargetUpdated(address indexed target, bool allowed);
     event SelectorUpdated(
@@ -37,6 +40,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         bool allowed
     );
     event LimitUpdated(bytes32 indexed key, uint256 value);
+    event RouterUpdated(address indexed newRouter);
 
     constructor() {
         // Set sensible defaults
@@ -45,6 +49,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         limits[PolicyKeys.MAX_SWAP_AMOUNT_IN] = type(uint256).max; // no limit by default
         limits[PolicyKeys.MAX_APPROVE_AMOUNT] = type(uint256).max; // no limit by default
         limits[PolicyKeys.MAX_REPAY_AMOUNT] = type(uint256).max; // no limit by default
+        limits[PolicyKeys.MAX_SLIPPAGE_BPS] = 300; // 3% default
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -82,6 +87,11 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     function setLimit(bytes32 key, uint256 value) external onlyOwner {
         limits[key] = value;
         emit LimitUpdated(key, value);
+    }
+
+    function setRouter(address _router) external onlyOwner {
+        router = _router;
+        emit RouterUpdated(_router);
     }
 
     function pause() external onlyOwner {
@@ -141,7 +151,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     ) internal view returns (bool, string memory) {
         (
             uint256 amountIn,
-            ,
+            uint256 amountOutMin,
             address[] memory path,
             address to,
             uint256 deadline
@@ -177,6 +187,23 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
             return (false, "Swap amount exceeds limit");
         }
 
+        // Slippage check: amountOutMin must not be zero
+        if (amountOutMin == 0) {
+            return (false, "amountOutMin is zero");
+        }
+
+        // Slippage check: compare against on-chain quote if router is set
+        uint256 maxSlippageBps = limits[PolicyKeys.MAX_SLIPPAGE_BPS];
+        if (maxSlippageBps > 0 && router != address(0)) {
+            (bool quoteOk, string memory slipReason) = _checkSlippage(
+                amountIn,
+                amountOutMin,
+                path,
+                maxSlippageBps
+            );
+            if (!quoteOk) return (false, slipReason);
+        }
+
         return (true, "");
     }
 
@@ -187,7 +214,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         uint256 value
     ) internal view returns (bool, string memory) {
         (
-            ,
+            uint256 amountOutMin,
             address[] memory path,
             address to,
             uint256 deadline
@@ -213,14 +240,29 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         for (uint256 i = 0; i < path.length; i++) {
             if (!tokenAllowed[path[i]])
                 return (false, "Token in path not allowed");
-            // Native swap path MUST start with WBNB, but router enforces that.
-            // PolicyGuard only cares if the tokens are allowed.
         }
 
         // Amount limit check (using msg.value from action)
         uint256 maxAmount = limits[PolicyKeys.MAX_SWAP_AMOUNT_IN];
         if (maxAmount != type(uint256).max && value > maxAmount) {
             return (false, "Swap amount exceeds limit");
+        }
+
+        // Slippage check: amountOutMin must not be zero
+        if (amountOutMin == 0) {
+            return (false, "amountOutMin is zero");
+        }
+
+        // Slippage check: compare against on-chain quote if router is set
+        uint256 maxSlippageBps = limits[PolicyKeys.MAX_SLIPPAGE_BPS];
+        if (maxSlippageBps > 0 && router != address(0)) {
+            (bool quoteOk, string memory slipReason) = _checkSlippage(
+                value,
+                amountOutMin,
+                path,
+                maxSlippageBps
+            );
+            if (!quoteOk) return (false, slipReason);
         }
 
         return (true, "");
@@ -276,6 +318,54 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         uint256 maxAmount = limits[PolicyKeys.MAX_REPAY_AMOUNT];
         if (maxAmount != type(uint256).max && repayAmount > maxAmount) {
             return (false, "Repay amount exceeds limit");
+        }
+
+        return (true, "");
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                 SLIPPAGE CHECK (INTERNAL)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @dev Compare amountOutMin against on-chain router quote
+    /// @param amountIn The input amount for the swap
+    /// @param amountOutMin The minimum output amount specified by the user
+    /// @param path The swap path
+    /// @param maxSlippageBps Maximum allowed slippage in basis points
+    function _checkSlippage(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] memory path,
+        uint256 maxSlippageBps
+    ) internal view returns (bool, string memory) {
+        // Call router.getAmountsOut(amountIn, path)
+        // Using low-level call to handle revert gracefully
+        bytes memory callPayload = abi.encodeWithSelector(
+            bytes4(0xd06ca61f), // getAmountsOut(uint256,address[])
+            amountIn,
+            path
+        );
+
+        (bool success, bytes memory returnData) = router.staticcall(
+            callPayload
+        );
+
+        if (!success || returnData.length < 64) {
+            // Quote failed — pair may not exist or path is invalid
+            return (false, "Quote unavailable");
+        }
+
+        // Decode the amounts array — last element is the expected output
+        uint256[] memory amounts = abi.decode(returnData, (uint256[]));
+        uint256 quoteOut = amounts[amounts.length - 1];
+
+        if (quoteOut == 0) {
+            return (false, "Quote returned zero");
+        }
+
+        // Check: amountOutMin * 10000 >= quoteOut * (10000 - maxSlippageBps)
+        if (amountOutMin * 10000 < quoteOut * (10000 - maxSlippageBps)) {
+            return (false, "Slippage exceeds max bps");
         }
 
         return (true, "");

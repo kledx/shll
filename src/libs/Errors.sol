@@ -13,6 +13,7 @@ library Errors {
     error ExecutionFailed();
     error OnlyListingManager();
     error OnlyOwner();
+    error OperatorExceedsLease();
     error AccountAlreadySet();
 
     // ─── BAP-578 Lifecycle ───

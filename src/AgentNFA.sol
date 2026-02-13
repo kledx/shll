@@ -60,6 +60,12 @@ contract AgentNFA is
     /// @notice The ListingManager contract (only it can call setUser)
     address public listingManager;
 
+    /// @notice tokenId => authorized operator address
+    mapping(uint256 => address) private _operators;
+
+    /// @notice tokenId => operator authorization expiry
+    mapping(uint256 => uint64) private _operatorExpires;
+
     // ─── Events (from IAgentNFA) ───
     event AgentMinted(
         uint256 indexed tokenId,
@@ -85,6 +91,11 @@ contract AgentNFA is
         bytes4 selector,
         bool success,
         bytes result
+    );
+    event OperatorSet(
+        uint256 indexed tokenId,
+        address indexed operator,
+        uint64 expires
     );
 
     constructor(address _policyGuard) ERC721("ShellAgent", "SHLL") {
@@ -174,6 +185,36 @@ contract AgentNFA is
         uint256 tokenId
     ) public view override(IERC4907) returns (uint256) {
         return _userExpires[tokenId];
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                    OPERATOR (RUNTIME)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Renter authorizes an operator to execute on their behalf
+    /// @param tokenId The agent token ID
+    /// @param operator The operator address (e.g. runner wallet)
+    /// @param opExpires Operator expiry (must not exceed rent expiry)
+    function setOperator(
+        uint256 tokenId,
+        address operator,
+        uint64 opExpires
+    ) external {
+        address renter = userOf(tokenId);
+        if (msg.sender != renter) revert Errors.Unauthorized();
+        if (opExpires > _userExpires[tokenId])
+            revert Errors.OperatorExceedsLease();
+        _operators[tokenId] = operator;
+        _operatorExpires[tokenId] = opExpires;
+        emit OperatorSet(tokenId, operator, opExpires);
+    }
+
+    /// @notice Get current operator (returns address(0) if expired)
+    function operatorOf(uint256 tokenId) public view returns (address) {
+        if (uint256(_operatorExpires[tokenId]) >= block.timestamp) {
+            return _operators[tokenId];
+        }
+        return address(0);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -454,11 +495,11 @@ contract AgentNFA is
             return;
         }
 
-        if (msg.sender == renter) {
-            // Renter must be within lease period (userOf returns 0 if expired)
+        if (msg.sender == renter || msg.sender == operatorOf(tokenId)) {
+            // Renter or operator must be within lease period
             if (renter == address(0)) revert Errors.LeaseExpired();
 
-            // Renter MUST pass PolicyGuard validation
+            // Renter/Operator MUST pass PolicyGuard validation
             (bool ok, string memory reason) = IPolicyGuard(policyGuard)
                 .validate(address(this), tokenId, account, msg.sender, action);
             if (!ok) revert Errors.PolicyViolation(reason);
