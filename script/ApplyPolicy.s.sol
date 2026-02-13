@@ -34,6 +34,8 @@ contract ApplyPolicy is Script {
         guard.setTokenAllowed(usdt, true);
         guard.setTargetAllowed(wbnb, true);
         guard.setSelectorAllowed(wbnb, PolicyKeys.APPROVE, true);
+        guard.setSelectorAllowed(wbnb, PolicyKeys.WRAP_NATIVE, true);
+        guard.setSelectorAllowed(wbnb, PolicyKeys.UNWRAP_NATIVE, true);
         guard.setTargetAllowed(usdt, true);
         guard.setSelectorAllowed(usdt, PolicyKeys.APPROVE, true);
         guard.setSpenderAllowed(usdt, router, true);
