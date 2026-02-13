@@ -326,6 +326,16 @@ contract AgentNFA is
         emit MetadataUpdated(tokenId, tokenURI(tokenId));
     }
 
+    /// @notice Update the Token URI for an agent (Owner only)
+    /// @dev Useful if metadata API domain changes
+    function setTokenURI(
+        uint256 tokenId,
+        string calldata uri
+    ) external onlyOwner {
+        _setTokenURI(tokenId, uri);
+        emit MetadataUpdated(tokenId, uri);
+    }
+
     /// @notice Get the BAP-578 state for an agent
     function getState(
         uint256 tokenId
