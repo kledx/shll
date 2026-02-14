@@ -1,168 +1,176 @@
-# shll — Decentralized AI Agent Rental Protocol
+﻿# SHLL Protocol Contracts
 
-> Secure, permissionless AI Agent leasing on BNB Chain (BSC)
+中文说明: [README.zh.md](./README.zh.md)
 
-## Overview
+Official X: https://x.com/shllrun
+Testnet: https://test.shll.run
 
-shll enables AI Agent owners to rent out their agents via NFTs (ERC-721 + ERC-4907 + **BAP-578**) while maintaining full asset security through an on-chain firewall — **PolicyGuard**.
+Secure, permissionless AI Agent rental contracts on BNB Chain.
 
-**Core idea**: Renters can use an AI Agent to execute DeFi operations (swap, approve, repay), but every action is validated against configurable allowlists and parameter constraints. The agent's funds stay in an isolated vault — renters can never drain them.
+SHLL lets an agent owner lease usage rights while keeping custody of funds in an isolated vault. Renters can execute approved strategy actions, but every renter action is constrained by on-chain policy checks.
 
-**BAP-578 NFA Standard**: Each agent carries rich on-chain metadata (persona, experience, voiceHash, animationURI, vault), supports per-agent lifecycle management (Active / Paused / Terminated), and exposes a standardized `executeAction` entry point compliant with BNB Chain's Non-Fungible Agent specification.
+## What This Repository Contains
 
-## Architecture
+This repository (`repos/shll`) is the smart-contract core of SHLL:
 
+- Agent identity and rental lifecycle (`AgentNFA`)
+- Isolated per-agent vault execution (`AgentAccount`)
+- On-chain firewall and limits (`PolicyGuard`)
+- Listing and rental marketplace flow (`ListingManager`)
+
+## System Design
+
+Core flow:
+
+1. Owner mints an Agent NFA.
+2. Each agent maps to an isolated account vault.
+3. Owner lists the agent for rental.
+4. Renter receives temporary usage rights.
+5. Renter triggers actions through `AgentNFA.executeAction`.
+6. `PolicyGuard` validates target/selector/tokens/limits before vault call.
+
+Security invariant:
+
+- Renter can use the agent only within policy.
+- Renter cannot arbitrarily transfer owner assets out of vault.
+- Owner always retains ultimate control and can pause or reconfigure policy.
+
+## Contract Modules
+
+| Contract | Responsibility |
+|---|---|
+| `AgentNFA` | ERC-721 + ERC-4907 + BAP-578 metadata/lifecycle; rental user assignment; execution entrypoint |
+| `AgentAccount` | Isolated vault account per agent; executes approved calls |
+| `PolicyGuard` | On-chain policy engine: target/selector/token/spender/amount/deadline constraints |
+| `ListingManager` | Listing, rental, extension, cancellation, and fee flow |
+
+Supporting libraries:
+
+- `src/libs/Errors.sol`
+- `src/libs/CalldataDecoder.sol`
+- `src/libs/PolicyKeys.sol`
+
+## BAP-578 and Rental Semantics
+
+- BAP-578 enriches each agent with machine-readable metadata and a standard action model.
+- ERC-4907 provides owner/user separation with an expiry-based usage right.
+- `AgentNFA` binds these capabilities into explicit on-chain rental behavior.
+
+## Repository Links
+
+This workspace has multiple SHLL repositories for end-to-end development:
+
+| Component | Local Path | Repository URL |
+|---|---|---|
+| Contracts (this repo) | `repos/shll` | https://github.com/kledx/shll |
+| Web App | `repos/shll-web` | https://github.com/kledx/shll-web |
+| Runner Service | `repos/shll-runner` | https://github.com/kledx/shll-runner.git |
+| Indexer | `repos/shll-indexer` | https://github.com/kledx/shll-indexer |
+
+Note: the runner URL above is the remote currently configured in this workspace.
+
+Development note: this project was completed fully with vibe coding. For full build context and decision trails, see [ailogs](./ailogs/).
+
+## Requirements
+
+- Foundry (`forge`, `cast`, `anvil`)
+- Solidity `0.8.33` (configured in `foundry.toml`)
+
+Install Foundry:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Renter EOA  │────▶│   AgentNFA   │────▶│ PolicyGuard  │
-└──────────────┘     │  (ERC-721 +  │     │ (On-chain    │
-                     │  ERC-4907 +  │     │  Firewall)   │
-                     │  BAP-578)    │     └──────────────┘
-                     └──────┬───────┘
-                            │
-                     ┌──────▼───────┐     ┌──────────────┐
-                     │ AgentAccount │────▶│  DeFi Target │
-                     │  (Vault)     │     │(Router/Token)│
-                     └──────────────┘     └──────────────┘
-
-┌──────────────┐
-│ListingManager│  Marketplace: list / rent / extend / cancel
-└──────────────┘
-```
-
-## Contracts
-
-| Contract | Description |
-|----------|-------------|
-| **AgentNFA** | ERC-721 + ERC-4907 + BAP-578 identity layer. Mint agents with rich metadata, manage rentals, per-agent lifecycle, route execution |
-| **AgentAccount** | Isolated vault per agent. Holds funds, executes calls (only via NFA) |
-| **PolicyGuard** | On-chain firewall. Validates swap/approve/repay with allowlists + limits |
-| **ListingManager** | Rental marketplace. Listing, payment, income withdrawal |
-
-### Libraries
-
-| Library | Description |
-|---------|-------------|
-| **Errors** | Unified custom errors across all contracts |
-| **CalldataDecoder** | Safe calldata parsing for swap/approve/repay |
-| **PolicyKeys** | Limit key constants and known function selectors |
-
-## Security Model
-
-PolicyGuard enforces these invariants for renter-initiated actions:
-
-- **Swap** (`swapExactTokensForTokens`): `to` must be AgentAccount (not renter EOA), deadline window limited, path length capped, all tokens must be whitelisted
-- **Approve**: No infinite approval (`type(uint256).max` blocked), spender must be whitelisted per token, amount capped
-- **Repay** (`repayBorrowBehalf`): Borrower must be current renter, amount capped, vToken must be whitelisted
-- **General**: Target + selector allowlist, pause capability, owner-only admin
-
-Owner bypasses PolicyGuard entirely — they have full control of their agent.
-
-## Tech Stack
-
-- **Solidity** 0.8.33 (Paris EVM)
-- **Foundry** (forge, cast, anvil)
-- **OpenZeppelin** v4.9.6
-- **Networks**: opBNB (L2) + BSC (L1)
 
 ## Quick Start
 
 ```bash
-# Install Foundry
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-
-# Build
 forge build
-
-# Test (61 tests: 18 PolicyGuard + 43 Integration)
 forge test
+```
 
-# Test with verbosity
+Useful commands:
+
+```bash
+forge fmt
 forge test -vvv
 ```
 
-## Deploy
+## Environment
+
+Copy and fill environment values:
 
 ```bash
-# 1. Deploy contracts
-PRIVATE_KEY=0x... forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
+cp .env.example .env
+```
 
-# 2. Apply policy (configure allowlists from JSON config)
+Common variables:
+
+- `PRIVATE_KEY`
+- `RPC_URL`
+- `ETHERSCAN_API_KEY` (optional)
+- `POLICY_GUARD` (for policy scripts)
+
+## Deployment
+
+Deploy contracts:
+
+```bash
+PRIVATE_KEY=0x... forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
+```
+
+Apply policy configuration:
+
+```bash
 PRIVATE_KEY=0x... POLICY_GUARD=0x... CONFIG_PATH=configs/bsc.mainnet.json \
   forge script script/ApplyPolicy.s.sol --rpc-url $RPC_URL --broadcast
 ```
 
-## Configuration
+## Network Configs
 
-Network configs in `configs/`:
+Policy/address presets live in `configs/`:
 
-```
-configs/
-├── opbnb.mainnet.json    # opBNB mainnet addresses
-├── opbnb.testnet.json    # opBNB testnet addresses
-├── bsc.mainnet.json      # BSC mainnet (PancakeSwap, Venus, WBNB, USDT)
-configs/
-├── opbnb.mainnet.json    # opBNB mainnet addresses
-├── opbnb.testnet.json    # opBNB testnet addresses
-├── bsc.mainnet.json      # BSC mainnet (PancakeSwap, Venus, WBNB, USDT)
-└── bsc.testnet.json      # BSC testnet addresses
+- `configs/opbnb.mainnet.json`
+- `configs/opbnb.testnet.json`
+- `configs/bsc.mainnet.json`
+- `configs/bsc.testnet.json`
 
-## Deployed Addresses (BSC Testnet)
+## BSC Testnet Addresses
 
 | Contract | Address |
-|----------|---------|
-| **PolicyGuard** | [`0xf087B0e4e829109603533FA3c81BAe101e46934b`](https://testnet.bscscan.com/address/0xf087B0e4e829109603533FA3c81BAe101e46934b) |
-| **AgentNFA** | [`0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6`](https://testnet.bscscan.com/address/0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6) |
-| **ListingManager** | [`0x71597c159007E9FF35bcF47822913cA78B182156`](https://testnet.bscscan.com/address/0x71597c159007E9FF35bcF47822913cA78B182156) |
-
-```
-
-Each config contains router addresses, token addresses, Venus vToken addresses, and default policy limits.
+|---|---|
+| `PolicyGuard` | `0xf087B0e4e829109603533FA3c81BAe101e46934b` |
+| `AgentNFA` | `0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6` |
+| `ListingManager` | `0x71597c159007E9FF35bcF47822913cA78B182156` |
 
 ## Project Structure
 
-```
+```text
 src/
-├── types/Action.sol           # Unified Action struct
-├── libs/
-│   ├── Errors.sol             # Custom errors
-│   ├── CalldataDecoder.sol    # Calldata parsing
-│   └── PolicyKeys.sol         # Limit keys + selectors
-├── interfaces/                # IBAP578, IERC4907, IPolicyGuard, IAgentAccount, IAgentNFA
-├── PolicyGuard.sol            # On-chain firewall
-├── AgentAccount.sol           # Isolated vault
-├── AgentNFA.sol               # ERC-721 + ERC-4907 + BAP-578 identity
-└── ListingManager.sol         # Rental marketplace
-test/
-├── PolicyGuard.t.sol          # 18 unit tests
-└── Integration.t.sol          # 43 E2E + BAP-578 + attack scenario tests
+  AgentNFA.sol
+  AgentAccount.sol
+  PolicyGuard.sol
+  ListingManager.sol
+  types/Action.sol
+  interfaces/
+  libs/
 script/
-├── Deploy.s.sol               # Contract deployment
-└── ApplyPolicy.s.sol          # Policy configuration from JSON
+  Deploy.s.sol
+  ApplyPolicy.s.sol
+  CheckPolicy.s.sol
+  MintTestAgents.s.sol
+test/
+  AgentNFA.t.sol
+  PolicyGuard.t.sol
+  OperatorPermit.t.sol
+  Integration.t.sol
 configs/
-├── opbnb.mainnet.json
-├── opbnb.testnet.json
-├── bsc.mainnet.json
-└── bsc.testnet.json
 ```
-
-## Test Coverage
-
-**61/61 tests passing** ✅
-
-Attack scenarios validated:
-1. Swap output to renter EOA → **blocked**
-2. Approve to unauthorized spender → **blocked**
-3. Infinite approval → **blocked**
-4. Withdraw to third-party address → **blocked**
-5. Execute after lease expiry → **blocked**
-6. Non-renter execute → **blocked**
-7. Direct AgentAccount bypass → **blocked**
 
 ## AI Development Logs
 
-This project uses AI-assisted development. Session logs documenting features built, process, and results are available in [`ailogs/`](./ailogs/).
+Session logs are stored in [ailogs](./ailogs/).
 
 ## License
 
