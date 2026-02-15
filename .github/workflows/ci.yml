@@ -5,6 +5,7 @@ on:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,6 +20,9 @@ jobs:
 
       - name: Install deps
         run: forge install
+
+      - name: Format Check
+        run: forge fmt --check
 
       - name: Build
         run: forge build --sizes
