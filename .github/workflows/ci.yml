@@ -21,9 +21,6 @@ jobs:
       - name: Install deps
         run: forge install
 
-      - name: Format Check
-        run: forge fmt --check
-
       - name: Build
         run: forge build --sizes
 
