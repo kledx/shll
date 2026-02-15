@@ -125,6 +125,17 @@ PRIVATE_KEY=0x... POLICY_GUARD=0x... CONFIG_PATH=configs/bsc.mainnet.json \
   forge script script/ApplyPolicy.s.sol --rpc-url $RPC_URL --broadcast
 ```
 
+上架演示 Agent（模板脚本，一次 mint + list）：
+
+```bash
+# 1) 复制模板并填写参数
+cp script/demo-agent.env.example .env.demo-agent
+
+# 2) 导出变量并执行（bash 示例）
+set -a && source .env.demo-agent && set +a
+forge script script/ListDemoAgent.s.sol --rpc-url $RPC_URL --broadcast
+```
+
 ## 网络配置
 
 策略与地址预设位于 `configs/`：
@@ -157,7 +168,9 @@ script/
   Deploy.s.sol
   ApplyPolicy.s.sol
   CheckPolicy.s.sol
+  ListDemoAgent.s.sol
   MintTestAgents.s.sol
+  demo-agent.env.example
 test/
   AgentNFA.t.sol
   PolicyGuard.t.sol
