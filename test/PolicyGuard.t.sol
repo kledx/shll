@@ -273,7 +273,7 @@ contract PolicyGuardTest is Test {
             action
         );
         assertFalse(ok);
-        assertEq(reason, "Quote unavailable");
+        assertEq(reason, "Quote failed: pair may not exist");
     }
 
     function test_swap_slippageAtExactBoundary() public {
@@ -583,7 +583,7 @@ contract PolicyGuardTest is Test {
 
         uint256[] memory amounts = new uint256[](3);
         amounts[0] = amountIn;
-        amounts[1] = amountIn * 95 / 100;
+        amounts[1] = (amountIn * 95) / 100;
         amounts[2] = expectedOut;
 
         vm.mockCall(
@@ -611,7 +611,11 @@ contract PolicyGuardTest is Test {
 
         vm.mockCall(
             ROUTER,
-            abi.encodeWithSelector(bytes4(0xd06ca61f), uint256(100 ether), path),
+            abi.encodeWithSelector(
+                bytes4(0xd06ca61f),
+                uint256(100 ether),
+                path
+            ),
             abi.encode(wrongAmounts)
         );
 
@@ -768,7 +772,7 @@ contract PolicyGuardTest is Test {
         // Don't mock getAmountsOut - it shouldn't be called
         Action memory action = _buildSwapAction(
             100 ether,
-            0, // Even zero should pass when disabled
+            1, // Even when disabled, amountOutMin must be > 0
             ACCOUNT,
             block.timestamp + 600
         );
