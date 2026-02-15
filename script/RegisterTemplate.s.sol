@@ -27,8 +27,8 @@ contract RegisterTemplate is Script {
         vm.startBroadcast(deployerKey);
 
         // Step 1: Register Agent #0 as template (freezes policyId + packHash)
-        nfa.registerTemplate(tokenId, bytes32(uint256(1)), "swap-v1");
-        console.log("Registered Agent #0 as template");
+        // ALREADY DONE: nfa.registerTemplate(tokenId, bytes32(uint256(1)), "swap-v1");
+        console.log("Registered Agent #0 as template (SKIP - already done)");
 
         // Step 2: Cancel the existing classic listing
         lm.cancelListing(oldListingId);

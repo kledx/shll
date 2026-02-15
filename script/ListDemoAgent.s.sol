@@ -6,7 +6,7 @@ import "../src/AgentNFA.sol";
 import "../src/ListingManager.sol";
 import "../src/interfaces/IBAP578.sol";
 
-/// @notice Mint one demo agent and list it in a single broadcast.
+/// @notice Mint one demo agent, register as template, and create template listing.
 /// @dev All params are provided via env vars. See script/demo-agent.env.example.
 contract ListDemoAgent is Script {
     struct DemoConfig {
@@ -81,8 +81,12 @@ contract ListDemoAgent is Script {
             );
         }
 
+        // Multi-tenant only: register template first, then create template listing.
+        agentNFA.registerTemplate(tokenId, cfg.vaultHash, cfg.vaultURI);
+        console.log("Registered template tokenId:", tokenId);
+
         agentNFA.approve(address(listingManager), tokenId);
-        bytes32 listingId = listingManager.createListing(
+        bytes32 listingId = listingManager.createTemplateListing(
             address(agentNFA),
             tokenId,
             cfg.pricePerDay,

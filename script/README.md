@@ -24,7 +24,7 @@ Read-only validation between config JSON and on-chain `PolicyGuard` state.
 Mints 2 fixed test agents and lists them.
 
 5. `script/ListDemoAgent.s.sol`  
-Mints and lists 1 configurable demo agent from env vars.
+Mints 1 configurable demo agent, registers it as template, and creates a template listing.
 
 6. `script/UpdateAgentPack.s.sol`  
 Updates `vaultURI` and `vaultHash` for an existing agent token.
