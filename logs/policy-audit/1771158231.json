@@ -1,0 +1,11 @@
+{
+  "timestamp": "1771158231",
+  "network": "BSC Testnet",
+  "policyGuard": "0xCfdc3BEA04c36673a1eabf777647d38fcFcb23C7",
+  "configVersion": "1.2.0",
+  "operation": "apply",
+  "summary": {
+    "added": 15,
+    "skipped": 3
+  }
+}

@@ -14,6 +14,7 @@ import {Errors} from "./libs/Errors.sol";
 /// @title ListingManager — Agent rental marketplace
 /// @notice Handles listing, renting, extending, and canceling Agent NFA rentals
 /// @dev Production-grade: per-listing gracePeriod, maxDays, pauseRenting
+///      V1.3: Template listings + Rent-to-Mint flow
 contract ListingManager is Ownable, ReentrancyGuard {
     struct Listing {
         address nfa; // AgentNFA contract
@@ -22,6 +23,7 @@ contract ListingManager is Ownable, ReentrancyGuard {
         uint96 pricePerDay; // rental price per day in native currency
         uint32 minDays; // minimum rental duration
         bool active;
+        bool isTemplate; // V1.3: true = Rent-to-Mint, false = classic rent
     }
 
     /// @notice Per-listing rental configuration
@@ -82,13 +84,29 @@ contract ListingManager is Ownable, ReentrancyGuard {
     event RentingPaused(bytes32 indexed listingId);
     event RentingResumed(bytes32 indexed listingId);
 
+    // ─── V1.3: Rent-to-Mint events ───
+    event TemplateListingCreated(
+        bytes32 indexed listingId,
+        address indexed nfa,
+        uint256 indexed tokenId,
+        uint96 pricePerDay,
+        uint32 minDays
+    );
+    event InstanceRented(
+        bytes32 indexed listingId,
+        address indexed renter,
+        uint256 instanceId,
+        uint64 expires,
+        uint256 totalPaid
+    );
+
     constructor() {}
 
     // ═══════════════════════════════════════════════════════════
     //                    LISTING
     // ═══════════════════════════════════════════════════════════
 
-    /// @notice Create a new listing for an Agent NFA
+    /// @notice Create a new listing for an Agent NFA (classic rent — exclusive access)
     function createListing(
         address nfa,
         uint256 tokenId,
@@ -110,12 +128,63 @@ contract ListingManager is Ownable, ReentrancyGuard {
             owner: msg.sender,
             pricePerDay: pricePerDay,
             minDays: minDays,
-            active: true
+            active: true,
+            isTemplate: false
         });
 
         allListingIds.push(listingId);
 
         emit ListingCreated(listingId, nfa, tokenId, pricePerDay, minDays);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                    V1.3: TEMPLATE LISTING
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Create a template listing — enables Rent-to-Mint for this agent
+    /// @dev The tokenId must already be registered as a template via AgentNFA.registerTemplate()
+    /// @param nfa The AgentNFA contract address
+    /// @param tokenId The template tokenId (must be registered)
+    /// @param pricePerDay Rental price per day in native currency
+    /// @param minDays Minimum rental duration in days
+    function createTemplateListing(
+        address nfa,
+        uint256 tokenId,
+        uint96 pricePerDay,
+        uint32 minDays
+    ) external returns (bytes32 listingId) {
+        // Caller must be the NFA owner
+        if (IERC721(nfa).ownerOf(tokenId) != msg.sender)
+            revert Errors.NotListingOwner();
+
+        // SECURITY: Token must be registered as template first
+        if (!IAgentNFA(nfa).isTemplate(tokenId))
+            revert Errors.NotTemplate(tokenId);
+
+        listingId = keccak256(abi.encodePacked(nfa, tokenId));
+
+        // Check not already listed
+        if (listings[listingId].active) revert Errors.ListingAlreadyExists();
+
+        listings[listingId] = Listing({
+            nfa: nfa,
+            tokenId: tokenId,
+            owner: msg.sender,
+            pricePerDay: pricePerDay,
+            minDays: minDays,
+            active: true,
+            isTemplate: true
+        });
+
+        allListingIds.push(listingId);
+
+        emit TemplateListingCreated(
+            listingId,
+            nfa,
+            tokenId,
+            pricePerDay,
+            minDays
+        );
     }
 
     /// @notice Cancel a listing
@@ -129,16 +198,19 @@ contract ListingManager is Ownable, ReentrancyGuard {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //                    RENT
+    //                    RENT (Classic — exclusive access)
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Rent an Agent NFA by paying the rental fee
+    /// @dev Does NOT work for template listings — use rentToMint() instead
     function rent(
         bytes32 listingId,
         uint32 daysToRent
     ) external payable nonReentrant returns (uint64 expires) {
         Listing storage listing = listings[listingId];
         if (!listing.active) revert Errors.ListingNotFound();
+        // SECURITY: template listings cannot use classic rent
+        if (listing.isTemplate) revert Errors.IsTemplateListing();
         if (rentingPaused[listingId]) revert Errors.RentingPaused();
         if (daysToRent < listing.minDays)
             revert Errors.MinDaysNotMet(daysToRent, listing.minDays);
@@ -191,6 +263,73 @@ contract ListingManager is Ownable, ReentrancyGuard {
         }
 
         emit AgentRented(listingId, msg.sender, expires, totalCost);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                    V1.3: RENT-TO-MINT
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Rent-to-Mint: mint a new Instance from a Template listing
+    /// @dev Anyone can call this for a template listing. Each call mints a NEW instance.
+    ///      Multiple users can rent the same template simultaneously.
+    /// @param listingId The template listing ID
+    /// @param daysToRent Number of days to rent the instance
+    /// @param initParams Arbitrary initialization parameters (stored as hash on-chain)
+    /// @return instanceId The newly minted instance tokenId
+    function rentToMint(
+        bytes32 listingId,
+        uint32 daysToRent,
+        bytes calldata initParams
+    ) external payable nonReentrant returns (uint256 instanceId) {
+        Listing storage listing = listings[listingId];
+        if (!listing.active) revert Errors.ListingNotFound();
+        // SECURITY: only template listings allow rentToMint
+        if (!listing.isTemplate) revert Errors.TemplateListingRequired();
+        if (rentingPaused[listingId]) revert Errors.RentingPaused();
+        if (daysToRent < listing.minDays)
+            revert Errors.MinDaysNotMet(daysToRent, listing.minDays);
+
+        // Check maxDays limit
+        ListingConfig storage cfg = listingConfigs[listingId];
+        if (cfg.maxDays > 0 && daysToRent > cfg.maxDays) {
+            revert Errors.MaxDaysExceeded(daysToRent, cfg.maxDays);
+        }
+
+        // SECURITY: validate initParams is not empty (empty params likely a user error)
+        if (initParams.length == 0) revert Errors.InvalidInitParams();
+
+        // Calculate payment
+        uint256 totalCost = uint256(listing.pricePerDay) * uint256(daysToRent);
+        if (msg.value < totalCost)
+            revert Errors.InsufficientPayment(totalCost, msg.value);
+
+        // Compute expiry
+        uint64 expires = uint64(block.timestamp + uint256(daysToRent) * 1 days);
+
+        // Mint instance via AgentNFA — instance is minted to the renter (owner = renter)
+        instanceId = IAgentNFA(listing.nfa).mintInstanceFromTemplate(
+            msg.sender,
+            listing.tokenId,
+            expires,
+            initParams
+        );
+
+        // Track rental income for template owner
+        pendingWithdrawals[listing.owner] += totalCost;
+
+        // Refund excess payment
+        if (msg.value > totalCost) {
+            (bool ok, ) = msg.sender.call{value: msg.value - totalCost}("");
+            if (!ok) revert Errors.ExecutionFailed();
+        }
+
+        emit InstanceRented(
+            listingId,
+            msg.sender,
+            instanceId,
+            expires,
+            totalCost
+        );
     }
 
     /// @notice Extend an existing rental

@@ -85,4 +85,38 @@ interface IAgentNFA {
         uint256 tokenId
     ) external view returns (IBAP578.Status);
     function logicAddressOf(uint256 tokenId) external view returns (address);
+
+    //  V1.3: Template / Instance 
+    event TemplateListed(
+        uint256 indexed templateId,
+        address indexed owner,
+        bytes32 packHash,
+        string packURI,
+        bytes32 policyId
+    );
+    event InstanceMinted(
+        uint256 indexed templateId,
+        uint256 indexed instanceId,
+        address indexed renter,
+        address vault,
+        uint64 expires,
+        bytes32 paramsHash
+    );
+    function registerTemplate(
+        uint256 tokenId,
+        bytes32 packHash,
+        string calldata packURI
+    ) external;
+    function mintInstanceFromTemplate(
+        address to,
+        uint256 templateId,
+        uint64 expires,
+        bytes calldata initParams
+    ) external returns (uint256 instanceId);
+    function templateOf(uint256 tokenId) external view returns (uint256);
+    function paramsHashOf(uint256 tokenId) external view returns (bytes32);
+    function isTemplate(uint256 tokenId) external view returns (bool);
+    function templatePolicyId(uint256 tokenId) external view returns (bytes32);
+    function templatePackHash(uint256 tokenId) external view returns (bytes32);
+    function nextTokenId() external view returns (uint256);
 }

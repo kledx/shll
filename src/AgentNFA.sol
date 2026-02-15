@@ -7,8 +7,12 @@ import {
 } from "openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/security/Pausable.sol";
-import {EIP712} from "openzeppelin-contracts/contracts/utils/cryptography/EIP712.sol";
-import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {
+    EIP712
+} from "openzeppelin-contracts/contracts/utils/cryptography/EIP712.sol";
+import {
+    ECDSA
+} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 import {IERC4907} from "./interfaces/IERC4907.sol";
 import {IBAP578} from "./interfaces/IBAP578.sol";
 
@@ -72,6 +76,26 @@ contract AgentNFA is
     /// @notice tokenId => operator permit nonce (for anti-replay)
     mapping(uint256 => uint256) private _operatorNonces;
 
+    // ─── V1.3: Template -> Instance ───
+
+    /// @notice instanceId => templateId
+    mapping(uint256 => uint256) private _templateOf;
+
+    /// @notice instanceId => true if this token is an instance (explicit flag)
+    mapping(uint256 => bool) private _isInstance;
+
+    /// @notice templateId => true if registered as template
+    mapping(uint256 => bool) private _isTemplate;
+
+    /// @notice templateId => immutable policyId snapshot (frozen at registration)
+    mapping(uint256 => bytes32) private _templatePolicyId;
+
+    /// @notice templateId => immutable packHash snapshot (frozen at registration)
+    mapping(uint256 => bytes32) private _templatePackHash;
+
+    /// @notice instanceId => keccak256(initParams) for reproducibility
+    mapping(uint256 => bytes32) private _paramsHashOf;
+
     bytes32 private constant OPERATOR_PERMIT_TYPEHASH =
         keccak256(
             "OperatorPermit(uint256 tokenId,address renter,address operator,uint64 expires,uint256 nonce,uint256 deadline)"
@@ -119,10 +143,26 @@ contract AgentNFA is
     );
     event OperatorCleared(uint256 indexed tokenId, address indexed caller);
 
-    constructor(address _policyGuard)
-        ERC721("ShellAgent", "SHLL")
-        EIP712("SHLL AgentNFA", "1")
-    {
+    // ─── V1.3: Template / Instance events ───
+    event TemplateListed(
+        uint256 indexed templateId,
+        address indexed owner,
+        bytes32 packHash,
+        string packURI,
+        bytes32 policyId
+    );
+    event InstanceMinted(
+        uint256 indexed templateId,
+        uint256 indexed instanceId,
+        address indexed renter,
+        address vault,
+        uint64 expires,
+        bytes32 paramsHash
+    );
+
+    constructor(
+        address _policyGuard
+    ) ERC721("ShellAgent", "SHLL") EIP712("SHLL AgentNFA", "1") {
         if (_policyGuard == address(0)) revert Errors.ZeroAddress();
         policyGuard = _policyGuard;
     }
@@ -172,6 +212,110 @@ contract AgentNFA is
         _agentStatus[tokenId] = IBAP578.Status.Active;
 
         emit AgentMinted(tokenId, to, address(account), policyId);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                    V1.3: TEMPLATE REGISTRATION
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Register an existing Agent as a Template (owner only)
+    /// @dev Freezes the current policyId and packHash — immutable after registration
+    /// @param tokenId The agent tokenId to register as template
+    /// @param packHash SHA256 hash of the capability pack manifest
+    /// @param packURI URI to the published capability pack
+    function registerTemplate(
+        uint256 tokenId,
+        bytes32 packHash,
+        string calldata packURI
+    ) external {
+        _requireMinted(tokenId);
+        if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
+        if (_isTemplate[tokenId]) revert Errors.AlreadyTemplate(tokenId);
+        // An instance cannot be registered as a template
+        if (_isInstance[tokenId]) revert Errors.NotTemplate(tokenId);
+
+        _isTemplate[tokenId] = true;
+        // Freeze current policyId — cannot be changed after this point
+        _templatePolicyId[tokenId] = _policyIdOf[tokenId];
+        _templatePackHash[tokenId] = packHash;
+
+        emit TemplateListed(
+            tokenId,
+            msg.sender,
+            packHash,
+            packURI,
+            _policyIdOf[tokenId]
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                    V1.3: RENT-TO-MINT (INSTANCE CREATION)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Mint a new Instance from a Template — only callable by ListingManager
+    /// @dev Creates a new tokenId with its own AgentAccount vault.
+    ///      The instance inherits the template's frozen policyId.
+    ///      Instance is minted directly to the renter (owner = renter).
+    /// @param to The renter address who will own the instance
+    /// @param templateId The template tokenId to instantiate from
+    /// @param expires The lease expiry timestamp
+    /// @param initParams Arbitrary instance initialization parameters
+    /// @return instanceId The newly minted instance tokenId
+    function mintInstanceFromTemplate(
+        address to,
+        uint256 templateId,
+        uint64 expires,
+        bytes calldata initParams
+    ) external returns (uint256 instanceId) {
+        // SECURITY: only ListingManager can call this
+        if (msg.sender != listingManager) revert Errors.OnlyListingManager();
+        // SECURITY: template must be registered
+        if (!_isTemplate[templateId]) revert Errors.NotTemplate(templateId);
+        // SECURITY: renter address must be valid
+        if (to == address(0)) revert Errors.ZeroAddress();
+
+        // Mint new tokenId
+        instanceId = _nextTokenId++;
+        _safeMint(to, instanceId);
+
+        // Deploy a dedicated AgentAccount for this instance
+        AgentAccount account = new AgentAccount(address(this), instanceId);
+        _accountOf[instanceId] = address(account);
+
+        // Inherit template's frozen policyId (immutable reference)
+        _policyIdOf[instanceId] = _templatePolicyId[templateId];
+
+        // Record template relationship
+        _templateOf[instanceId] = templateId;
+        _isInstance[instanceId] = true;
+
+        // Store params hash for reproducibility
+        bytes32 paramsHash = keccak256(initParams);
+        _paramsHashOf[instanceId] = paramsHash;
+
+        // Set renter as user with expiry (ERC-4907 semantics)
+        _users[instanceId] = to;
+        _userExpires[instanceId] = expires;
+
+        // Initialize as Active
+        _agentStatus[instanceId] = IBAP578.Status.Active;
+
+        emit InstanceMinted(
+            templateId,
+            instanceId,
+            to,
+            address(account),
+            expires,
+            paramsHash
+        );
+        emit AgentMinted(
+            instanceId,
+            to,
+            address(account),
+            _policyIdOf[instanceId]
+        );
+        emit UpdateUser(instanceId, to, expires);
+        emit LeaseSet(instanceId, to, expires);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -287,7 +431,9 @@ contract AgentNFA is
         return address(0);
     }
 
-    function operatorExpiresOf(uint256 tokenId) external view returns (uint256) {
+    function operatorExpiresOf(
+        uint256 tokenId
+    ) external view returns (uint256) {
         return _operatorExpires[tokenId];
     }
 
@@ -476,8 +622,12 @@ contract AgentNFA is
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Update the policy template for an NFA (owner only)
+    /// @dev SECURITY: Templates cannot change policy after registerTemplate() is called
     function setPolicy(uint256 tokenId, bytes32 newPolicyId) external {
         if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
+        // SECURITY: prevent template owner from changing policy after registration
+        // This protects all instances that inherited this template's policy
+        if (_isTemplate[tokenId]) revert Errors.AlreadyTemplate(tokenId);
         bytes32 oldPolicyId = _policyIdOf[tokenId];
         _policyIdOf[tokenId] = newPolicyId;
         emit PolicyUpdated(tokenId, oldPolicyId, newPolicyId);
@@ -503,6 +653,38 @@ contract AgentNFA is
 
     function logicAddressOf(uint256 tokenId) external view returns (address) {
         return _logicAddress[tokenId];
+    }
+
+    // ─── V1.3: Template / Instance Views ───
+
+    /// @notice Get the next tokenId (useful for off-chain indexing)
+    function nextTokenId() external view returns (uint256) {
+        return _nextTokenId;
+    }
+
+    /// @notice Check if a tokenId is registered as a template
+    function isTemplate(uint256 tokenId) external view returns (bool) {
+        return _isTemplate[tokenId];
+    }
+
+    /// @notice Get the template policyId (frozen at registration)
+    function templatePolicyId(uint256 tokenId) external view returns (bytes32) {
+        return _templatePolicyId[tokenId];
+    }
+
+    /// @notice Get the template packHash (frozen at registration)
+    function templatePackHash(uint256 tokenId) external view returns (bytes32) {
+        return _templatePackHash[tokenId];
+    }
+
+    /// @notice Get the templateId for an instance (0 = not an instance)
+    function templateOf(uint256 tokenId) external view returns (uint256) {
+        return _templateOf[tokenId];
+    }
+
+    /// @notice Get the init params hash for an instance
+    function paramsHashOf(uint256 tokenId) external view returns (bytes32) {
+        return _paramsHashOf[tokenId];
     }
 
     // ═══════════════════════════════════════════════════════════
