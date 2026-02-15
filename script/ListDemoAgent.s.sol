@@ -44,7 +44,9 @@ contract ListDemoAgent is Script {
         cfg.animationURI = vm.envOr("DEMO_ANIMATION_URI", string(""));
         cfg.vaultURI = vm.envString("DEMO_VAULT_URI");
         cfg.vaultHash = vm.envBytes32("DEMO_VAULT_HASH");
+        // forge-lint: disable-next-line(unsafe-typecast)
         cfg.pricePerDay = uint96(pricePerDayRaw);
+        // forge-lint: disable-next-line(unsafe-typecast)
         cfg.minDays = uint32(minDaysRaw);
     }
 

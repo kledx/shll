@@ -339,6 +339,7 @@ contract ListingManager is Ownable, ReentrancyGuard {
     ) external payable nonReentrant returns (uint64 newExpires) {
         Listing storage listing = listings[listingId];
         if (!listing.active) revert Errors.ListingNotFound();
+        if (listing.isTemplate) revert Errors.IsTemplateListing();
 
         // Caller must be current renter
         address currentUser = IAgentNFA(listing.nfa).userOf(listing.tokenId);
@@ -353,6 +354,7 @@ contract ListingManager is Ownable, ReentrancyGuard {
         uint256 currentExpiry = IAgentNFA(listing.nfa).userExpires(
             listing.tokenId
         );
+        // forge-lint: disable-next-line(unsafe-typecast)
         newExpires = uint64(currentExpiry + uint256(daysToExtend) * 1 days);
         IAgentNFA(listing.nfa).setUser(listing.tokenId, msg.sender, newExpires);
 

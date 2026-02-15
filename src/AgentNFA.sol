@@ -172,10 +172,12 @@ contract AgentNFA is
     // ═══════════════════════════════════════════════════════════
 
     function setListingManager(address _listingManager) external onlyOwner {
+        if (_listingManager == address(0)) revert Errors.ZeroAddress();
         listingManager = _listingManager;
     }
 
     function setPolicyGuard(address _policyGuard) external onlyOwner {
+        if (_policyGuard == address(0)) revert Errors.ZeroAddress();
         policyGuard = _policyGuard;
     }
 
@@ -332,6 +334,7 @@ contract AgentNFA is
         if (msg.sender != listingManager && msg.sender != owner()) {
             revert Errors.OnlyListingManager();
         }
+        _requireMinted(tokenId);
         _users[tokenId] = user;
         _userExpires[tokenId] = expires;
         emit UpdateUser(tokenId, user, expires);
@@ -751,7 +754,18 @@ contract AgentNFA is
         address renter = userOf(tokenId);
 
         if (msg.sender == tokenOwner) {
-            // Owner can execute without PolicyGuard check
+            // Instance owners (Rent-to-Mint) MUST pass PolicyGuard
+            if (_isInstance[tokenId]) {
+                (bool ok, string memory reason) = IPolicyGuard(policyGuard)
+                    .validate(
+                        address(this),
+                        tokenId,
+                        account,
+                        msg.sender,
+                        action
+                    );
+                if (!ok) revert Errors.PolicyViolation(reason);
+            }
             return;
         }
 

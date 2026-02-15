@@ -9,6 +9,22 @@ Secure, permissionless AI Agent rental contracts on BNB Chain.
 
 SHLL lets an agent owner lease usage rights while keeping custody of funds in an isolated vault. Renters can execute approved strategy actions, but every renter action is constrained by on-chain policy checks.
 
+## 🏆 Hackathon Reproduction (Reviewers Start Here)
+
+**Verifiable On-Chain Proof:**
+- **Script**: `script/ListDemoAgent.s.sol`
+- **Function**: Deploys a Multi-Tenant Agent (Template), registers it, and creates a listing.
+- **Contracts (BSC Testnet)**:
+  - `AgentNFA`: `0x636557BFe696221bd05B78b04FB3d091A322D1dE`
+  - `PolicyGuard`: `0x6764B3eC699D56D3dA6a8a947107bEF416eA3d78`
+  - `ListingManager`: `0x8c5B5ed82e2fAFfd3cEA3F22d7CA56d033ba658d`
+
+**How to Reproduce:**
+1. Clone this repo.
+2. Follow the detailed guide: [SHLL_Template_Agent_Create_Guide.md](./script/SHLL_Template_Agent_Create_Guide.md)
+3. View the result on [test.shll.run](https://test.shll.run) or verify the transactions on BscScan.
+
+
 ## What This Repository Contains
 
 This repository (`repos/shll`) is the smart-contract core of SHLL:
@@ -151,9 +167,9 @@ Policy/address presets live in `configs/`:
 
 | Contract | Address |
 |---|---|
-| `PolicyGuard` | `0xf087B0e4e829109603533FA3c81BAe101e46934b` |
-| `AgentNFA` | `0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6` |
-| `ListingManager` | `0x71597c159007E9FF35bcF47822913cA78B182156` |
+| `PolicyGuard` | `0x6764B3eC699D56D3dA6a8a947107bEF416eA3d78` |
+| `AgentNFA` | `0x636557BFe696221bd05B78b04FB3d091A322D1dE` |
+| `ListingManager` | `0x8c5B5ed82e2fAFfd3cEA3F22d7CA56d033ba658d` |
 
 ## Project Structure
 

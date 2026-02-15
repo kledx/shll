@@ -46,6 +46,7 @@ contract OperatorPermitTest is Test {
 
         tokenId = nfa.mintAgent(
             address(0xABCD),
+            // forge-lint: disable-next-line(unsafe-typecast)
             bytes32("default"),
             "ipfs://agent",
             _emptyMetadata()
@@ -141,7 +142,9 @@ contract OperatorPermitTest is Test {
         nfa.setOperatorWithSig(permit, sig);
     }
 
-    function test_setOperatorWithSig_reverts_if_submitter_not_operator() public {
+    function test_setOperatorWithSig_reverts_if_submitter_not_operator()
+        public
+    {
         uint64 leaseExpiry = uint64(block.timestamp + 1 days);
         nfa.setUser(tokenId, renter, leaseExpiry);
 

@@ -119,6 +119,7 @@ contract IntegrationTest is Test {
         // Mint an agent with BAP-578 metadata
         tokenId = nfa.mintAgent(
             owner,
+            // forge-lint: disable-next-line(unsafe-typecast)
             bytes32("default"),
             "ipfs://agent1",
             sampleMetadata
@@ -378,6 +379,7 @@ contract IntegrationTest is Test {
 
     function test_nfa_mintCreatesAccount() public view {
         assertTrue(account != address(0));
+        // forge-lint: disable-next-line(unsafe-typecast)
         assertEq(nfa.policyIdOf(tokenId), bytes32("default"));
     }
 
@@ -392,6 +394,7 @@ contract IntegrationTest is Test {
     }
 
     function test_nfa_setPolicy() public {
+        // forge-lint: disable-next-line(unsafe-typecast)
         bytes32 newPolicy = bytes32("advanced");
         nfa.setPolicy(tokenId, newPolicy);
         assertEq(nfa.policyIdOf(tokenId), newPolicy);
@@ -400,6 +403,7 @@ contract IntegrationTest is Test {
     function test_nfa_nonOwnerCannotSetPolicy() public {
         vm.prank(renter);
         vm.expectRevert();
+        // forge-lint: disable-next-line(unsafe-typecast)
         nfa.setPolicy(tokenId, bytes32("hacked"));
     }
 

@@ -9,6 +9,22 @@ English Version: [README.md](./README.md)
 
 SHLL 允许 Agent 所有者出租使用权，同时保持资产托管在隔离金库中。租户可以执行策略动作，但所有租户动作都必须通过链上策略校验。
 
+## 🏆 黑客松复现指南 (评审员请看这里)
+
+**链上验证证明:**
+- **复现脚本**: `script/ListDemoAgent.s.sol`
+- **功能**: 部署一个支持多租户的模版 Agent (Template)，注册模版，并创建租赁列表。
+- **合约地址 (BSC Testnet)**:
+  - `AgentNFA`: `0x636557BFe696221bd05B78b04FB3d091A322D1dE`
+  - `PolicyGuard`: `0x6764B3eC699D56D3dA6a8a947107bEF416eA3d78`
+  - `ListingManager`: `0x8c5B5ed82e2fAFfd3cEA3F22d7CA56d033ba658d`
+
+**如何复现:**
+1. 克隆本仓库。
+2. 按照详细指南操作: [SHLL_Template_Agent_Create_Guide.md](./script/SHLL_Template_Agent_Create_Guide.md)
+3. 在 [test.shll.run](https://test.shll.run) 查看结果，或在 BscScan 上验证交易。
+
+
 ## 仓库定位
 
 本仓库（`repos/shll`）是 SHLL 的智能合约核心，包含：
@@ -149,9 +165,9 @@ forge script script/ListDemoAgent.s.sol --rpc-url $RPC_URL --broadcast
 
 | 合约 | 地址 |
 |---|---|
-| `PolicyGuard` | `0xf087B0e4e829109603533FA3c81BAe101e46934b` |
-| `AgentNFA` | `0xb65ca34b1526c926c75129ef934c3ba9fe6f29f6` |
-| `ListingManager` | `0x71597c159007E9FF35bcF47822913cA78B182156` |
+| `PolicyGuard` | `0x6764B3eC699D56D3dA6a8a947107bEF416eA3d78` |
+| `AgentNFA` | `0x636557BFe696221bd05B78b04FB3d091A322D1dE` |
+| `ListingManager` | `0x8c5B5ed82e2fAFfd3cEA3F22d7CA56d033ba658d` |
 
 ## 目录结构
 

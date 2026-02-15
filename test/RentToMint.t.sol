@@ -74,7 +74,9 @@ contract RentToMintTest is Test {
     bytes32 templateListingId;
 
     IBAP578.AgentMetadata emptyMetadata;
+    // forge-lint: disable-next-line(unsafe-typecast)
     bytes32 constant TEST_POLICY = bytes32("testPolicy");
+    // forge-lint: disable-next-line(unsafe-typecast)
     bytes32 constant PACK_HASH = bytes32("packHash_v1");
     string constant PACK_URI = "ipfs://QmPackManifest";
 
@@ -189,6 +191,7 @@ contract RentToMintTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(Errors.AlreadyTemplate.selector, templateId)
         );
+        // forge-lint: disable-next-line(unsafe-typecast)
         nfa.setPolicy(templateId, bytes32("newPolicy"));
     }
 
@@ -454,6 +457,7 @@ contract RentToMintTest is Test {
     function test_multiTenant_manyInstances() public {
         // Stress test: 10 instances from same template
         for (uint256 i = 0; i < 10; i++) {
+            // forge-lint: disable-next-line(unsafe-typecast)
             address renter = address(uint160(0x1000 + i));
             vm.deal(renter, 1 ether);
             vm.prank(renter);
@@ -473,7 +477,7 @@ contract RentToMintTest is Test {
 
     function test_security_renterACannotAccessInstanceB() public {
         vm.prank(renterA);
-        uint256 instA = listingMgr.rentToMint{value: 0.1 ether}(
+        listingMgr.rentToMint{value: 0.1 ether}(
             templateListingId,
             1,
             abi.encode("A")
