@@ -214,7 +214,7 @@ contract ListingManager is Ownable, ReentrancyGuard {
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Rent an Agent NFA by paying the rental fee
-    /// @dev Does NOT work for template listings — use rentToMint() instead
+    /// @dev Does NOT work for template listings — use rentToMintWithParams() instead
     function rent(
         bytes32 listingId,
         uint32 daysToRent
@@ -277,75 +277,7 @@ contract ListingManager is Ownable, ReentrancyGuard {
         emit AgentRented(listingId, msg.sender, expires, totalCost);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //                    V1.3: RENT-TO-MINT
-    // ═══════════════════════════════════════════════════════════
-
-    /// @notice Rent-to-Mint: mint a new Instance from a Template listing
-    /// @dev Anyone can call this for a template listing. Each call mints a NEW instance.
-    ///      Multiple users can rent the same template simultaneously.
-    /// @param listingId The template listing ID
-    /// @param daysToRent Number of days to rent the instance
-    /// @param initParams Arbitrary initialization parameters (stored as hash on-chain)
-    /// @return instanceId The newly minted instance tokenId
-    function rentToMint(
-        bytes32 listingId,
-        uint32 daysToRent,
-        bytes calldata initParams
-    ) external payable nonReentrant returns (uint256 instanceId) {
-        Listing storage listing = listings[listingId];
-        if (!listing.active) revert Errors.ListingNotFound();
-        // SECURITY: only template listings allow rentToMint
-        if (!listing.isTemplate) revert Errors.TemplateListingRequired();
-        if (rentingPaused[listingId]) revert Errors.RentingPaused();
-        if (daysToRent < listing.minDays)
-            revert Errors.MinDaysNotMet(daysToRent, listing.minDays);
-
-        // Check maxDays limit
-        ListingConfig storage cfg = listingConfigs[listingId];
-        if (cfg.maxDays > 0 && daysToRent > cfg.maxDays) {
-            revert Errors.MaxDaysExceeded(daysToRent, cfg.maxDays);
-        }
-
-        // SECURITY: validate initParams is not empty (empty params likely a user error)
-        if (initParams.length == 0) revert Errors.InvalidInitParams();
-
-        // Calculate payment
-        uint256 totalCost = uint256(listing.pricePerDay) * uint256(daysToRent);
-        if (msg.value < totalCost)
-            revert Errors.InsufficientPayment(totalCost, msg.value);
-
-        // Compute expiry
-        uint64 expires = uint64(block.timestamp + uint256(daysToRent) * 1 days);
-
-        // Mint instance via AgentNFA — instance is minted to the renter (owner = renter)
-        instanceId = IAgentNFA(listing.nfa).mintInstanceFromTemplate(
-            msg.sender,
-            listing.tokenId,
-            expires,
-            initParams
-        );
-
-        // Track rental income for template owner
-        pendingWithdrawals[listing.owner] += totalCost;
-
-        // Refund excess payment
-        if (msg.value > totalCost) {
-            (bool ok, ) = msg.sender.call{value: msg.value - totalCost}("");
-            if (!ok) revert Errors.ExecutionFailed();
-        }
-
-        address instanceAccount = IAgentNFA(listing.nfa).accountOf(instanceId);
-
-        emit InstanceRented(
-            listingId,
-            msg.sender,
-            instanceId,
-            instanceAccount,
-            expires,
-            totalCost
-        );
-    }
+    // NOTE: rentToMint() removed in V1.5 — all new instances must use rentToMintWithParams()
 
     /**
      * @notice V1.4: Rent-to-Mint with instance-level parameters

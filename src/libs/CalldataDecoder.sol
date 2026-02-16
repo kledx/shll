@@ -29,6 +29,8 @@ library CalldataDecoder {
             uint256 deadline
         )
     {
+        // 4 (selector) + 5×32 (static) + 32 (array offset min) = 196 minimum
+        if (data.length < 196) revert Errors.CalldataTooShort();
         (amountIn, amountOutMin, path, to, deadline) = abi.decode(
             data[4:],
             (uint256, uint256, address[], address, uint256)
@@ -50,6 +52,8 @@ library CalldataDecoder {
             uint256 deadline
         )
     {
+        // 4 (selector) + 4×32 (static) + 32 (array offset min) = 164 minimum
+        if (data.length < 164) revert Errors.CalldataTooShort();
         (amountOutMin, path, to, deadline) = abi.decode(
             data[4:],
             (uint256, address[], address, uint256)
@@ -62,15 +66,20 @@ library CalldataDecoder {
     function decodeApprove(
         bytes calldata data
     ) internal pure returns (address spender, uint256 amount) {
+        // 4 (selector) + 2×32 = 68 minimum
+        if (data.length < 68) revert Errors.CalldataTooShort();
         (spender, amount) = abi.decode(data[4:], (address, uint256));
     }
 
     /// @notice Decode repayBorrowBehalf parameters
     /// @dev selector: 0x2608f818
     /// @dev params: (address borrower, uint256 repayAmount)
+    /// @dev Reserved for future Venus/lending protocol integration in PolicyGuardV3
     function decodeRepayBorrowBehalf(
         bytes calldata data
     ) internal pure returns (address borrower, uint256 repayAmount) {
+        // 4 (selector) + 2×32 = 68 minimum
+        if (data.length < 68) revert Errors.CalldataTooShort();
         (borrower, repayAmount) = abi.decode(data[4:], (address, uint256));
     }
 }
