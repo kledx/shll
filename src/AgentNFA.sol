@@ -488,6 +488,13 @@ contract AgentNFA is
 
             if (!success) revert Errors.ExecutionFailed();
             results[i] = out;
+
+            // H-3 fix + M-NEW-2 fix: Post-execution state update via typed call
+            if (policyGuard != address(0)) {
+                try
+                    IPolicyGuard(policyGuard).commit(tokenId, actions[i])
+                {} catch {}
+            }
         }
 
         _lastActionTimestamp[tokenId] = block.timestamp;
@@ -721,6 +728,11 @@ contract AgentNFA is
         );
 
         if (!success) revert Errors.ExecutionFailed();
+
+        // V1.4 + M-NEW-2 fix: Post-execution state update via typed call
+        if (policyGuard != address(0)) {
+            try IPolicyGuard(policyGuard).commit(tokenId, action) {} catch {}
+        }
 
         _lastActionTimestamp[tokenId] = block.timestamp;
         return out;

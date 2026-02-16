@@ -9,6 +9,7 @@ import {IAgentNFA} from "./interfaces/IAgentNFA.sol";
 import {
     IERC721
 } from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {InstanceConfig} from "./InstanceConfig.sol";
 import {Errors} from "./libs/Errors.sol";
 
 /// @title ListingManager — Agent rental marketplace
@@ -54,6 +55,9 @@ contract ListingManager is Ownable, ReentrancyGuard {
     /// @notice listingId => owner has paused renting
     mapping(bytes32 => bool) public rentingPaused;
 
+    /// @notice V1.4: Instance parameters configuration registry
+    address public instanceConfig;
+
     // ─── Events ───
     event ListingCreated(
         bytes32 indexed listingId,
@@ -95,12 +99,20 @@ contract ListingManager is Ownable, ReentrancyGuard {
     event InstanceRented(
         bytes32 indexed listingId,
         address indexed renter,
-        uint256 instanceId,
+        uint256 indexed instanceTokenId,
+        address instanceAccount,
         uint64 expires,
         uint256 totalPaid
     );
 
     constructor() {}
+
+    /**
+     * @notice Set the InstanceConfig contract address (V1.4)
+     */
+    function setInstanceConfig(address _instanceConfig) external onlyOwner {
+        instanceConfig = _instanceConfig;
+    }
 
     // ═══════════════════════════════════════════════════════════
     //                    LISTING
@@ -323,10 +335,83 @@ contract ListingManager is Ownable, ReentrancyGuard {
             if (!ok) revert Errors.ExecutionFailed();
         }
 
+        address instanceAccount = IAgentNFA(listing.nfa).accountOf(instanceId);
+
         emit InstanceRented(
             listingId,
             msg.sender,
             instanceId,
+            instanceAccount,
+            expires,
+            totalCost
+        );
+    }
+
+    /**
+     * @notice V1.4: Rent-to-Mint with instance-level parameters
+     * @param listingId The template listing ID
+     * @param daysToRent Number of days to rent
+     * @param policyId The policy ID to bind (must match template)
+     * @param version The policy version to bind
+     * @param paramsPacked ABI-encoded InstanceParams
+     */
+    function rentToMintWithParams(
+        bytes32 listingId,
+        uint32 daysToRent,
+        uint32 policyId,
+        uint16 version,
+        bytes calldata paramsPacked
+    ) external payable nonReentrant returns (uint256 instanceId) {
+        Listing storage listing = listings[listingId];
+        if (!listing.active) revert Errors.ListingNotFound();
+        if (!listing.isTemplate) revert Errors.TemplateListingRequired();
+        if (rentingPaused[listingId]) revert Errors.RentingPaused();
+        if (daysToRent < listing.minDays)
+            revert Errors.MinDaysNotMet(daysToRent, listing.minDays);
+        if (instanceConfig == address(0)) revert Errors.ExecutionFailed();
+
+        // Calculate payment
+        uint256 totalCost = uint256(listing.pricePerDay) * uint256(daysToRent);
+        if (msg.value < totalCost)
+            revert Errors.InsufficientPayment(totalCost, msg.value);
+
+        // Compute expiry
+        uint64 expires = uint64(block.timestamp + uint256(daysToRent) * 1 days);
+
+        // Mint instance via AgentNFA
+        instanceId = IAgentNFA(listing.nfa).mintInstanceFromTemplate(
+            msg.sender,
+            listing.tokenId,
+            expires,
+            paramsPacked
+        );
+
+        // H-2 fix: Bind config via direct interface call (not low-level)
+        InstanceConfig(instanceConfig).bindConfig(
+            instanceId,
+            policyId,
+            version,
+            paramsPacked
+        );
+
+        // Track rental income
+        pendingWithdrawals[listing.owner] += totalCost;
+
+        // Refund excess
+        if (msg.value > totalCost) {
+            (bool okRef, ) = msg.sender.call{value: msg.value - totalCost}("");
+            if (!okRef) revert Errors.ExecutionFailed();
+        }
+
+        address instanceAccountAddr = IAgentNFA(listing.nfa).accountOf(
+            instanceId
+        );
+
+        emit InstanceRented(
+            listingId,
+            msg.sender,
+            instanceId,
+            instanceAccountAddr,
             expires,
             totalCost
         );

@@ -20,4 +20,9 @@ interface IPolicyGuard {
         address caller,
         Action calldata action
     ) external view returns (bool ok, string memory reason);
+
+    /// @notice Post-execution state update (e.g. SpendLimit tracking)
+    /// @param tokenId The NFA token ID
+    /// @param action The action that was executed
+    function commit(uint256 tokenId, Action calldata action) external;
 }

@@ -44,7 +44,10 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
     );
     event LimitUpdated(bytes32 indexed key, uint256 value);
     event RouterUpdated(address indexed newRouter);
-    event FeeOnTransferTokenUpdated(address indexed token, bool isFeeOnTransfer);
+    event FeeOnTransferTokenUpdated(
+        address indexed token,
+        bool isFeeOnTransfer
+    );
 
     constructor() {
         // Set sensible defaults
@@ -100,7 +103,10 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         emit RouterUpdated(_router);
     }
 
-    function setFeeOnTransferToken(address token, bool isFeeOnTransfer) external onlyOwner {
+    function setFeeOnTransferToken(
+        address token,
+        bool isFeeOnTransfer
+    ) external onlyOwner {
         feeOnTransferTokens[token] = isFeeOnTransfer;
         emit FeeOnTransferTokenUpdated(token, isFeeOnTransfer);
     }
@@ -405,9 +411,13 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
         if (maxPriceImpact > 0 && maxPriceImpact < 10000) {
             // Calculate price impact: (quoteOut - amountOutMin) / quoteOut * 10000
             if (quoteOut > amountOutMin) {
-                uint256 priceImpact = ((quoteOut - amountOutMin) * 10000) / quoteOut;
+                uint256 priceImpact = ((quoteOut - amountOutMin) * 10000) /
+                    quoteOut;
                 if (priceImpact > maxPriceImpact) {
-                    return (false, "Price impact too high: possible flash crash");
+                    return (
+                        false,
+                        "Price impact too high: possible flash crash"
+                    );
                 }
             }
         }
@@ -419,4 +429,7 @@ contract PolicyGuard is IPolicyGuard, Ownable, Pausable {
 
         return (true, "");
     }
+
+    /// @notice V1.4 interface: no-op in legacy PolicyGuard (V1 has no spend tracking)
+    function commit(uint256, Action calldata) external override {}
 }
