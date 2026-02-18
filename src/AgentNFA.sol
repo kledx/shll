@@ -101,26 +101,12 @@ contract AgentNFA is
     /// @notice tokenId => agent type identifier
     mapping(uint256 => bytes32) public agentType;
 
-    /// @notice Agent type constants
+    /// @notice Agent type constants (add more in V3.1+)
     bytes32 public constant TYPE_DCA = keccak256("dca");
     bytes32 public constant TYPE_LLM_TRADER = keccak256("llm_trader");
-    bytes32 public constant TYPE_HOT_TOKEN = keccak256("hot_token");
-    bytes32 public constant TYPE_LLM_DEFI = keccak256("llm_defi");
 
-    // ─── V3.0: BAP-578 Reserved Slots (storage only, logic in V3.1+) ───
-
-    /// @notice BAP-578 4.4: Learning Module
-    mapping(uint256 => bool) public learningEnabled;
-    mapping(uint256 => address) public learningModule;
-    mapping(uint256 => bytes32) public learningTreeRoot;
-    mapping(uint256 => uint256) public learningVersion;
-    mapping(uint256 => uint256) public lastLearningUpdate;
-
-    /// @notice BAP-578 4.5: Memory Module Registry
-    mapping(uint256 => address) public memoryRegistry;
-
-    /// @notice BAP-578 4.6: Vault Permission System
-    mapping(uint256 => address) public vaultPermissionManager;
+    // ─── V3.1+ Reserved Slots: REMOVED to meet EIP-170 (24KB) ───
+    // Re-add in V3.1 upgrade: learningModule, memoryRegistry, vaultPermissionManager
 
     /// @notice BAP-578 4.7: Circuit Breaker (per-instance pause)
     mapping(uint256 => bool) public agentPaused;
@@ -501,43 +487,10 @@ contract AgentNFA is
         uint256 tokenId,
         Action[] calldata actions
     ) external payable whenNotPaused returns (bytes[] memory results) {
-        _checkAgentActive(tokenId);
-        address account = _accountOf[tokenId];
         results = new bytes[](actions.length);
-
         for (uint256 i = 0; i < actions.length; i++) {
-            _checkExecutePermission(tokenId, account, actions[i]);
-
-            (bool success, bytes memory out) = IAgentAccount(account)
-                .executeCall(
-                    actions[i].target,
-                    actions[i].value,
-                    actions[i].data
-                );
-
-            bytes4 selector = _extractSelector(actions[i].data);
-            emit Executed(
-                tokenId,
-                msg.sender,
-                account,
-                actions[i].target,
-                selector,
-                success,
-                out
-            );
-
-            if (!success) revert Errors.ExecutionFailed();
-            results[i] = out;
-
-            // H-3 fix + M-NEW-2 fix: Post-execution state update via typed call
-            if (policyGuard != address(0)) {
-                try
-                    IPolicyGuard(policyGuard).commit(tokenId, actions[i])
-                {} catch {}
-            }
+            results[i] = _executeInternal(tokenId, actions[i]);
         }
-
-        _lastActionTimestamp[tokenId] = block.timestamp;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -756,43 +709,10 @@ contract AgentNFA is
     }
 
     // ═══════════════════════════════════════════════════════════
-    //          V3.0: BAP-578 Reserved API (setter only)
+    //          V3.1+ Reserved API: REMOVED (EIP-170 limit)
+    //          Re-add: enableLearning, setMemoryRegistry,
+    //                  setVaultPermissionManager
     // ═══════════════════════════════════════════════════════════
-
-    /// @notice Enable learning module for an agent (V3.1+)
-    /// @dev M-1 fix: restricted to owner only — renter must not set arbitrary module address
-    function enableLearning(uint256 tokenId, address _module) external {
-        if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
-        // Validate that _module is a deployed contract
-        if (_module != address(0) && _module.code.length == 0) {
-            revert Errors.InvalidLogicAddress();
-        }
-        learningModule[tokenId] = _module;
-        learningEnabled[tokenId] = true;
-    }
-
-    /// @notice Update learning tree root (only learning module can call)
-    function updateLearningRoot(uint256 tokenId, bytes32 newRoot) external {
-        require(msg.sender == learningModule[tokenId], "Only learning module");
-        learningTreeRoot[tokenId] = newRoot;
-        learningVersion[tokenId]++;
-        lastLearningUpdate[tokenId] = block.timestamp;
-    }
-
-    /// @notice Set memory module registry (V3.1+)
-    function setMemoryRegistry(uint256 tokenId, address registry) external {
-        _requireOwnerOrRenter(tokenId);
-        memoryRegistry[tokenId] = registry;
-    }
-
-    /// @notice Set vault permission manager (V3.1+)
-    function setVaultPermissionManager(
-        uint256 tokenId,
-        address manager
-    ) external {
-        _requireOwnerOrRenter(tokenId);
-        vaultPermissionManager[tokenId] = manager;
-    }
 
     // ═══════════════════════════════════════════════════════════
     //                    INTERNAL

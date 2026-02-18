@@ -104,7 +104,12 @@ contract V3_0_IntegrationTest is Test {
         tokenWL.addToken(templateId, WBNB);
 
         // Spending limit: set ceiling, bind instance template, then set limits
-        spendingLimit.setTemplateCeiling(templateKey, 100 ether, 500 ether, 500);
+        spendingLimit.setTemplateCeiling(
+            templateKey,
+            100 ether,
+            500 ether,
+            500
+        );
         // Bind templateId instance to templateKey (M-2: ceiling lookup needs this)
         vm.prank(address(guardV4));
         spendingLimit.bindInstanceTemplate(templateId, templateKey);
@@ -463,26 +468,11 @@ contract V3_0_IntegrationTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //     9. BAP-578 Reserved Slots
+    //     9. BAP-578: Circuit Breaker default
     // ═══════════════════════════════════════════════════════════
 
-    function test_v3_bap578_reserved_slots_default() public view {
-        assertFalse(nfa.learningEnabled(templateId));
-        assertEq(nfa.memoryRegistry(templateId), address(0));
-        assertEq(nfa.vaultPermissionManager(templateId), address(0));
+    function test_v3_bap578_agentPaused_default() public view {
         assertFalse(nfa.agentPaused(templateId));
-    }
-
-    function test_v3_bap578_setMemoryRegistry() public {
-        address mockRegistry = address(0x7777);
-        nfa.setMemoryRegistry(templateId, mockRegistry);
-        assertEq(nfa.memoryRegistry(templateId), mockRegistry);
-    }
-
-    function test_v3_bap578_setVaultPermissionManager() public {
-        address mockManager = address(0x8888);
-        nfa.setVaultPermissionManager(templateId, mockManager);
-        assertEq(nfa.vaultPermissionManager(templateId), mockManager);
     }
 
     // ═══════════════════════════════════════════════════════════
