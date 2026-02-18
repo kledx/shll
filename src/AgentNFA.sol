@@ -247,6 +247,19 @@ contract AgentNFA is
         emit AgentTypeSet(tokenId, _agentType);
     }
 
+    /// @notice Admin-only: set or update the agent type for an existing token
+    /// @dev Used to fix instances minted before V3.1 or to correct misconfigurations
+    /// @param tokenId The agent tokenId to update
+    /// @param _agentType The new agent type hash (e.g. TYPE_DCA, TYPE_LLM_TRADER)
+    function setAgentType(
+        uint256 tokenId,
+        bytes32 _agentType
+    ) external onlyOwner {
+        _requireMinted(tokenId);
+        agentType[tokenId] = _agentType;
+        emit AgentTypeSet(tokenId, _agentType);
+    }
+
     // ═══════════════════════════════════════════════════════════
     //                    V1.3: TEMPLATE REGISTRATION
     // ═══════════════════════════════════════════════════════════
@@ -333,6 +346,12 @@ contract AgentNFA is
         // Initialize as Active
         _agentStatus[instanceId] = IBAP578.Status.Active;
 
+        // V3.1: Inherit agent type from template
+        bytes32 inheritedType = agentType[templateId];
+        if (inheritedType != bytes32(0)) {
+            agentType[instanceId] = inheritedType;
+        }
+
         emit InstanceMinted(
             templateId,
             instanceId,
@@ -347,6 +366,10 @@ contract AgentNFA is
             address(account),
             _policyIdOf[instanceId]
         );
+        // V3.1: Emit type event for indexer
+        if (inheritedType != bytes32(0)) {
+            emit AgentTypeSet(instanceId, inheritedType);
+        }
         emit UpdateUser(instanceId, to, expires);
         emit LeaseSet(instanceId, to, expires);
     }

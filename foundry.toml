@@ -6,6 +6,7 @@ solc_version = "0.8.33"
 evm_version = "paris"
 optimizer = true
 optimizer_runs = 200
+via_ir = true
 fs_permissions = [{ access = "read", path = "./configs" }, { access = "read-write", path = "./logs" }]
 
 [profile.default.fmt]
