@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {AgentNFA} from "../src/AgentNFA.sol";
 import {ListingManager} from "../src/ListingManager.sol";
+import {InstanceConfig} from "../src/InstanceConfig.sol";
 import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {TokenWhitelistPolicy} from "../src/policies/TokenWhitelistPolicy.sol";
 import {SpendingLimitPolicy} from "../src/policies/SpendingLimitPolicy.sol";
@@ -13,10 +14,10 @@ import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
 
 /// @title DeployV30Full — Production-grade V3.0 Full Deployment
-/// @notice Deploys 8 contracts + DCA template in 2 phases:
-///   Phase 1: Deploy all contracts + wire + approve (8 CREATE + 8 CALL = 16 txns)
+/// @notice Deploys 9 contracts + DCA template in 2 phases:
+///   Phase 1: Deploy all contracts + wire + approve (9 CREATE + 10 CALL = 19 txns)
 ///   Phase 2: Template setup — mint, register, policies, whitelist, list (14 txns)
-///   Total: 30 transactions, 9 contracts on-chain (including auto-created AgentAccount)
+///   Total: 33 transactions, 10 contracts on-chain (including auto-created AgentAccount)
 ///
 /// @dev Usage (MUST use --gas-price for BSC):
 ///   forge script script/DeployV30Full.s.sol \
@@ -44,6 +45,7 @@ contract DeployV30Full is Script {
     CooldownPolicy cooldown;
     ReceiverGuardPolicy receiverGuard;
     DexWhitelistPolicy dexWL;
+    InstanceConfig ic;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
@@ -67,10 +69,10 @@ contract DeployV30Full is Script {
 
         // ══════════════════════════════════════════════════════════
         //  PHASE 1: Deploy contracts + wire + approve
-        //  16 transactions: 8 CREATE + 8 CALL
+        //  19 transactions: 9 CREATE + 10 CALL
         // ══════════════════════════════════════════════════════════
 
-        console.log("[PHASE 1] Deploying 8 contracts + wiring...");
+        console.log("[PHASE 1] Deploying 9 contracts + wiring...");
         console.log("");
 
         vm.startBroadcast(deployerKey);
@@ -80,7 +82,7 @@ contract DeployV30Full is Script {
         vm.stopBroadcast();
 
         console.log("");
-        console.log("[PHASE 1] Complete. 8 contracts deployed + wired.");
+        console.log("[PHASE 1] Complete. 9 contracts deployed + wired.");
         console.log("Block after Phase 1:", block.number);
         console.log("");
 
@@ -110,10 +112,11 @@ contract DeployV30Full is Script {
         console.log("");
         console.log("Deploy Block :", block.number);
         console.log("");
-        console.log("--- Core Contracts (3) ---");
+        console.log("--- Core Contracts (4) ---");
         console.log("AgentNFA            :", address(nfa));
         console.log("PolicyGuardV4       :", address(guardV4));
         console.log("ListingManager      :", address(lm));
+        console.log("InstanceConfig      :", address(ic));
         console.log("");
         console.log("--- Policy Plugins (5) ---");
         console.log("TokenWhitelistPolicy:", address(tokenWL));
@@ -203,8 +206,8 @@ contract DeployV30Full is Script {
         );
         console.log("");
         console.log("========================================================");
-        console.log("  Total: 8 deployed + 1 auto-created = 9 contracts");
-        console.log("  Total: 30 transactions");
+        console.log("  Total: 9 deployed + 1 auto-created = 10 contracts");
+        console.log("  Total: 33 transactions");
         console.log("========================================================");
     }
 
@@ -215,31 +218,34 @@ contract DeployV30Full is Script {
     function _phase1_deploy(address /*deployer*/) internal {
         // --- Step 1: Deploy PolicyGuardV4 ---
         guardV4 = new PolicyGuardV4();
-        console.log("  [1/8] PolicyGuardV4       :", address(guardV4));
+        console.log("  [1/9] PolicyGuardV4       :", address(guardV4));
 
         // --- Step 2: Deploy AgentNFA (needs guard in constructor) ---
         nfa = new AgentNFA(address(guardV4));
-        console.log("  [2/8] AgentNFA            :", address(nfa));
+        console.log("  [2/9] AgentNFA            :", address(nfa));
 
         // --- Step 3: Deploy ListingManager ---
         lm = new ListingManager();
-        console.log("  [3/8] ListingManager      :", address(lm));
+        console.log("  [3/9] ListingManager      :", address(lm));
 
         // --- Step 4-8: Deploy Policy Plugins ---
         tokenWL = new TokenWhitelistPolicy(address(guardV4), address(nfa));
-        console.log("  [4/8] TokenWhitelistPolicy:", address(tokenWL));
+        console.log("  [4/9] TokenWhitelistPolicy:", address(tokenWL));
 
         spendingLimit = new SpendingLimitPolicy(address(guardV4), address(nfa));
-        console.log("  [5/8] SpendingLimitPolicy :", address(spendingLimit));
+        console.log("  [5/9] SpendingLimitPolicy :", address(spendingLimit));
 
         cooldown = new CooldownPolicy(address(guardV4), address(nfa));
-        console.log("  [6/8] CooldownPolicy      :", address(cooldown));
+        console.log("  [6/9] CooldownPolicy      :", address(cooldown));
 
         receiverGuard = new ReceiverGuardPolicy(address(nfa));
-        console.log("  [7/8] ReceiverGuardPolicy :", address(receiverGuard));
+        console.log("  [7/9] ReceiverGuardPolicy :", address(receiverGuard));
 
         dexWL = new DexWhitelistPolicy(address(guardV4), address(nfa));
-        console.log("  [8/8] DexWhitelistPolicy  :", address(dexWL));
+        console.log("  [8/9] DexWhitelistPolicy  :", address(dexWL));
+
+        ic = new InstanceConfig();
+        console.log("  [9/9] InstanceConfig      :", address(ic));
 
         console.log("");
         console.log("  Wiring contracts...");
@@ -255,6 +261,12 @@ contract DeployV30Full is Script {
         // --- Wire: Guard <-> ListingManager ---
         guardV4.setListingManager(address(lm));
         console.log("  [wire] GuardV4.setListingManager -> LM");
+
+        // --- Wire: InstanceConfig <-> ListingManager ---
+        ic.setMinter(address(lm));
+        console.log("  [wire] InstanceConfig.setMinter -> LM");
+        lm.setInstanceConfig(address(ic));
+        console.log("  [wire] LM.setInstanceConfig -> IC");
 
         console.log("");
         console.log("  Approving policies...");
