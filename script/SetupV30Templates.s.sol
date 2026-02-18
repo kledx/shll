@@ -157,6 +157,79 @@ contract SetupV30Templates is Script {
         console.log("DCA template listed, listingId:");
         console.logBytes32(listingId);
 
+        // ═══════════════════════════════════════════════════════
+        //  STEP 8: Create LLM Trader Template Agent
+        // ═══════════════════════════════════════════════════════
+
+        uint256 llmTokenId = _mintTemplateAgent(
+            deployer,
+            keccak256("llm_trader"),
+            "LLM Trader Agent",
+            "AI-powered trading agent using LLM for market analysis and execution"
+        );
+        console.log("LLM Trader Template minted, tokenId:", llmTokenId);
+
+        // Register as template
+        nfa.registerTemplate(llmTokenId, TEMPLATE_LLM, "llm-trader-v3");
+        console.log("LLM Trader template registered with key:");
+        console.logBytes32(TEMPLATE_LLM);
+
+        // ═══════════════════════════════════════════════════════
+        //  STEP 9: Attach policies to LLM Trader template
+        // ═══════════════════════════════════════════════════════
+
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(receiverGuard));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(spendingLimit));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(tokenWL));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(dexWL));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(cooldownPolicy));
+        console.log("LLM Trader template: 5 policies attached");
+
+        // ═══════════════════════════════════════════════════════
+        //  STEP 10: Set spending ceiling for LLM Trader
+        // ═══════════════════════════════════════════════════════
+
+        // LLM Trader: higher limits — 20 BNB per tx, 100 BNB daily, 300 bps max slippage
+        spendingLimit.setTemplateCeiling(
+            TEMPLATE_LLM,
+            20 ether,
+            100 ether,
+            300
+        );
+        console.log("LLM ceiling: 20 BNB/tx, 100 BNB/day, 3% slippage");
+
+        // ═══════════════════════════════════════════════════════
+        //  STEP 11: Configure token + DEX whitelists for LLM Trader
+        // ═══════════════════════════════════════════════════════
+
+        tokenWL.addToken(llmTokenId, usdt);
+        tokenWL.addToken(llmTokenId, wbnb);
+        console.log("LLM token whitelist: USDT, WBNB");
+
+        dexWL.addDex(llmTokenId, router);
+        console.log("LLM DEX whitelist: PancakeSwap Router");
+
+        // ═══════════════════════════════════════════════════════
+        //  STEP 12: Set cooldown for LLM Trader (30s — faster than DCA)
+        // ═══════════════════════════════════════════════════════
+
+        cooldownPolicy.setCooldown(llmTokenId, 30);
+        console.log("LLM cooldown: 30 seconds");
+
+        // ═══════════════════════════════════════════════════════
+        //  STEP 13: Create LLM Trader template listing
+        // ═══════════════════════════════════════════════════════
+
+        nfa.approve(address(lm), llmTokenId);
+        bytes32 llmListingId = lm.createTemplateListing(
+            address(nfa),
+            llmTokenId,
+            uint96(0.01 ether), // 0.01 BNB per day (premium)
+            1 // Min 1 day
+        );
+        console.log("LLM Trader template listed, listingId:");
+        console.logBytes32(llmListingId);
+
         vm.stopBroadcast();
 
         // ═══════════════════════════════════════════════════════
@@ -164,18 +237,25 @@ contract SetupV30Templates is Script {
         // ═══════════════════════════════════════════════════════
 
         console.log("");
-        console.log("========== V3.0 TEMPLATE SETUP COMPLETE ==========");
-        console.log("DCA Template tokenId :", dcaTokenId);
-        console.log("DCA Template key     :");
-        console.logBytes32(TEMPLATE_DCA);
+        console.log("========== V3.1 TEMPLATE SETUP COMPLETE ==========");
+        console.log("");
+        console.log("--- DCA Template ---");
+        console.log("  tokenId      :", dcaTokenId);
         console.log(
-            "Policies attached    : 5 (Receiver, Spending, Token, DEX, Cooldown)"
+            "  Policies     : 5 (Receiver, Spending, Token, DEX, Cooldown)"
         );
-        console.log("Ceiling              : 10 BNB/tx, 50 BNB/day, 500 bps");
-        console.log("Token whitelist      : USDT, WBNB");
-        console.log("DEX whitelist        : PancakeSwap Router");
-        console.log("Cooldown             : 60s");
-        console.log("Listing price        : 0.005 BNB/day");
+        console.log("  Ceiling      : 10 BNB/tx, 50 BNB/day, 500 bps");
+        console.log("  Cooldown     : 60s");
+        console.log("  Listing price: 0.005 BNB/day");
+        console.log("");
+        console.log("--- LLM Trader Template ---");
+        console.log("  tokenId      :", llmTokenId);
+        console.log(
+            "  Policies     : 5 (Receiver, Spending, Token, DEX, Cooldown)"
+        );
+        console.log("  Ceiling      : 20 BNB/tx, 100 BNB/day, 300 bps");
+        console.log("  Cooldown     : 30s");
+        console.log("  Listing price: 0.01 BNB/day");
         console.log("===================================================");
     }
 
