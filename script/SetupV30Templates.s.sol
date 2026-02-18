@@ -12,6 +12,24 @@ import {AgentNFA} from "../src/AgentNFA.sol";
 import {ListingManager} from "../src/ListingManager.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
 
+/// @dev V1.5 AgentNFA ABI (on-chain contract has old mintAgent signature without _agentType)
+interface IAgentNFAV15 {
+    function mintAgent(
+        address to,
+        bytes32 policyId,
+        string calldata uri,
+        IBAP578.AgentMetadata calldata metadata
+    ) external returns (uint256 tokenId);
+
+    function nextTokenId() external view returns (uint256);
+    function registerTemplate(
+        uint256 tokenId,
+        bytes32 packHash,
+        string calldata packURI
+    ) external;
+    function approve(address to, uint256 tokenId) external;
+}
+
 /// @title SetupV30Templates — Configure V3.0 templates, ceilings, and whitelists
 /// @notice Run AFTER DeployV30.s.sol. Creates template agents with full policy config.
 /// @dev Usage:
@@ -33,7 +51,7 @@ import {IBAP578} from "../src/interfaces/IBAP578.sol";
 contract SetupV30Templates is Script {
     // Contract references
     PolicyGuardV4 guardV4;
-    AgentNFA nfa;
+    IAgentNFAV15 nfa; // Use V1.5 interface for on-chain compatibility
     ListingManager lm;
     TokenWhitelistPolicy tokenWL;
     SpendingLimitPolicy spendingLimit;
@@ -56,7 +74,7 @@ contract SetupV30Templates is Script {
 
         // Load contract addresses
         guardV4 = PolicyGuardV4(vm.envAddress("POLICY_GUARD_V4"));
-        nfa = AgentNFA(vm.envAddress("AGENT_NFA"));
+        nfa = IAgentNFAV15(vm.envAddress("AGENT_NFA"));
         lm = ListingManager(vm.envAddress("LISTING_MANAGER"));
         tokenWL = TokenWhitelistPolicy(vm.envAddress("TOKEN_WL"));
         spendingLimit = SpendingLimitPolicy(vm.envAddress("SPENDING_LIMIT"));
@@ -74,9 +92,9 @@ contract SetupV30Templates is Script {
         //  STEP 1: Create DCA Template Agent
         // ═══════════════════════════════════════════════════════
 
+        // Hardcode type bytes32 since on-chain V1.5 AgentNFA doesn't have TYPE_DCA()
         uint256 dcaTokenId = _mintTemplateAgent(
             deployer,
-            nfa.TYPE_DCA(),
             "DCA Strategy Agent",
             "Automated dollar-cost averaging into selected tokens"
         );
@@ -177,10 +195,9 @@ contract SetupV30Templates is Script {
         console.log("===================================================");
     }
 
-    /// @dev Mint a template agent with BAP-578 metadata
+    /// @dev Mint a template agent using V1.5 ABI (on-chain contract)
     function _mintTemplateAgent(
         address owner,
-        bytes32 agentType,
         string memory name,
         string memory description
     ) internal returns (uint256) {
@@ -199,10 +216,10 @@ contract SetupV30Templates is Script {
             vaultHash: bytes32(0)
         });
 
+        // Call V1.5 mintAgent (4 params: to, policyId, uri, metadata)
         uint256 tokenId = nfa.mintAgent(
             owner,
-            bytes32(uint256(1)), // policyId (legacy, still needed)
-            agentType,
+            bytes32(uint256(1)), // policyId (legacy)
             string.concat(
                 "https://api.shll.run/api/metadata/",
                 vm.toString(nfa.nextTokenId())
