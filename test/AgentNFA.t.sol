@@ -41,7 +41,13 @@ contract AgentNFATest is Test {
             vaultHash: VAULT_HASH
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         assertEq(tokenId, 0, "First token should be ID 0");
         assertEq(nfa.ownerOf(tokenId), OWNER, "Owner should be set correctly");
@@ -59,16 +65,42 @@ contract AgentNFATest is Test {
             vaultHash: VAULT_HASH
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         IBAP578.AgentMetadata memory retrieved = nfa.getAgentMetadata(tokenId);
 
         assertEq(retrieved.persona, metadata.persona, "Persona should match");
-        assertEq(retrieved.experience, metadata.experience, "Experience should match");
-        assertEq(retrieved.voiceHash, metadata.voiceHash, "VoiceHash should match");
-        assertEq(retrieved.animationURI, metadata.animationURI, "AnimationURI should match");
-        assertEq(retrieved.vaultURI, metadata.vaultURI, "VaultURI should match");
-        assertEq(retrieved.vaultHash, metadata.vaultHash, "VaultHash should match");
+        assertEq(
+            retrieved.experience,
+            metadata.experience,
+            "Experience should match"
+        );
+        assertEq(
+            retrieved.voiceHash,
+            metadata.voiceHash,
+            "VoiceHash should match"
+        );
+        assertEq(
+            retrieved.animationURI,
+            metadata.animationURI,
+            "AnimationURI should match"
+        );
+        assertEq(
+            retrieved.vaultURI,
+            metadata.vaultURI,
+            "VaultURI should match"
+        );
+        assertEq(
+            retrieved.vaultHash,
+            metadata.vaultHash,
+            "VaultHash should match"
+        );
     }
 
     /// @dev Test updating agent metadata (owner only)
@@ -82,7 +114,13 @@ contract AgentNFATest is Test {
             vaultHash: VAULT_HASH
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         // Update vaultURI to new capability pack
         string memory newVaultURI = "https://shll.run/packs/hotpump_v2.json";
@@ -103,8 +141,16 @@ contract AgentNFATest is Test {
         IBAP578.AgentMetadata memory retrieved = nfa.getAgentMetadata(tokenId);
 
         assertEq(retrieved.vaultURI, newVaultURI, "VaultURI should be updated");
-        assertEq(retrieved.vaultHash, newVaultHash, "VaultHash should be updated");
-        assertEq(retrieved.persona, updatedMetadata.persona, "Persona should be updated");
+        assertEq(
+            retrieved.vaultHash,
+            newVaultHash,
+            "VaultHash should be updated"
+        );
+        assertEq(
+            retrieved.persona,
+            updatedMetadata.persona,
+            "Persona should be updated"
+        );
     }
 
     /// @dev Test that non-owner cannot update metadata
@@ -118,7 +164,13 @@ contract AgentNFATest is Test {
             vaultHash: VAULT_HASH
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         IBAP578.AgentMetadata memory newMetadata = metadata;
         newMetadata.vaultURI = "https://malicious.com/pack.json";
@@ -143,13 +195,23 @@ contract AgentNFATest is Test {
             vaultHash: correctHash
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         IBAP578.AgentMetadata memory retrieved = nfa.getAgentMetadata(tokenId);
 
         // Verify hash matches
         bytes32 computedHash = keccak256(bytes(packContent));
-        assertEq(retrieved.vaultHash, computedHash, "VaultHash should match computed hash");
+        assertEq(
+            retrieved.vaultHash,
+            computedHash,
+            "VaultHash should match computed hash"
+        );
     }
 
     /// @dev Test empty vaultURI (agent without capability pack)
@@ -159,11 +221,17 @@ contract AgentNFATest is Test {
             experience: "Manual agent",
             voiceHash: "",
             animationURI: "",
-            vaultURI: "",  // No capability pack
+            vaultURI: "", // No capability pack
             vaultHash: bytes32(0)
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         IBAP578.AgentMetadata memory retrieved = nfa.getAgentMetadata(tokenId);
 
@@ -182,11 +250,21 @@ contract AgentNFATest is Test {
             vaultHash: VAULT_HASH
         });
 
-        uint256 tokenId = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata);
+        uint256 tokenId = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata
+        );
 
         IBAP578.State memory state = nfa.getState(tokenId);
 
-        assertEq(uint256(state.status), uint256(IBAP578.Status.Active), "Status should be Active");
+        assertEq(
+            uint256(state.status),
+            uint256(IBAP578.Status.Active),
+            "Status should be Active"
+        );
         assertEq(state.owner, OWNER, "Owner should match");
     }
 
@@ -212,14 +290,33 @@ contract AgentNFATest is Test {
             vaultHash: keccak256("dca_pack")
         });
 
-        uint256 tokenId1 = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata1);
-        uint256 tokenId2 = nfa.mintAgent(OWNER, POLICY_ID, TOKEN_URI, metadata2);
+        uint256 tokenId1 = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata1
+        );
+        uint256 tokenId2 = nfa.mintAgent(
+            OWNER,
+            POLICY_ID,
+            bytes32(0),
+            TOKEN_URI,
+            metadata2
+        );
 
-        IBAP578.AgentMetadata memory retrieved1 = nfa.getAgentMetadata(tokenId1);
-        IBAP578.AgentMetadata memory retrieved2 = nfa.getAgentMetadata(tokenId2);
+        IBAP578.AgentMetadata memory retrieved1 = nfa.getAgentMetadata(
+            tokenId1
+        );
+        IBAP578.AgentMetadata memory retrieved2 = nfa.getAgentMetadata(
+            tokenId2
+        );
 
         assertEq(retrieved1.vaultURI, "https://shll.run/packs/hotpump.json");
         assertEq(retrieved2.vaultURI, "https://shll.run/packs/dca.json");
-        assertTrue(retrieved1.vaultHash != retrieved2.vaultHash, "Different packs should have different hashes");
+        assertTrue(
+            retrieved1.vaultHash != retrieved2.vaultHash,
+            "Different packs should have different hashes"
+        );
     }
 }

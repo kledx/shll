@@ -96,6 +96,35 @@ contract AgentNFA is
     /// @notice instanceId => keccak256(initParams) for reproducibility
     mapping(uint256 => bytes32) private _paramsHashOf;
 
+    // ─── V3.0: Agent Type ───
+
+    /// @notice tokenId => agent type identifier
+    mapping(uint256 => bytes32) public agentType;
+
+    /// @notice Agent type constants
+    bytes32 public constant TYPE_DCA = keccak256("dca");
+    bytes32 public constant TYPE_LLM_TRADER = keccak256("llm_trader");
+    bytes32 public constant TYPE_HOT_TOKEN = keccak256("hot_token");
+    bytes32 public constant TYPE_LLM_DEFI = keccak256("llm_defi");
+
+    // ─── V3.0: BAP-578 Reserved Slots (storage only, logic in V3.1+) ───
+
+    /// @notice BAP-578 4.4: Learning Module
+    mapping(uint256 => bool) public learningEnabled;
+    mapping(uint256 => address) public learningModule;
+    mapping(uint256 => bytes32) public learningTreeRoot;
+    mapping(uint256 => uint256) public learningVersion;
+    mapping(uint256 => uint256) public lastLearningUpdate;
+
+    /// @notice BAP-578 4.5: Memory Module Registry
+    mapping(uint256 => address) public memoryRegistry;
+
+    /// @notice BAP-578 4.6: Vault Permission System
+    mapping(uint256 => address) public vaultPermissionManager;
+
+    /// @notice BAP-578 4.7: Circuit Breaker (per-instance pause)
+    mapping(uint256 => bool) public agentPaused;
+
     bytes32 private constant OPERATOR_PERMIT_TYPEHASH =
         keccak256(
             "OperatorPermit(uint256 tokenId,address renter,address operator,uint64 expires,uint256 nonce,uint256 deadline)"
@@ -160,6 +189,11 @@ contract AgentNFA is
         bytes32 paramsHash
     );
 
+    // ─── V3.0 Events ───
+    event AgentTypeSet(uint256 indexed tokenId, bytes32 agentType);
+    event AgentInstancePaused(uint256 indexed tokenId);
+    event AgentInstanceUnpaused(uint256 indexed tokenId);
+
     constructor(
         address _policyGuard
     ) ERC721("ShellAgent", "SHLL") EIP712("SHLL AgentNFA", "1") {
@@ -194,9 +228,11 @@ contract AgentNFA is
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Mint a new Agent NFA with BAP-578 metadata and a dedicated AgentAccount
+    /// @dev V3.0: Added _agentType parameter for agent categorization
     function mintAgent(
         address to,
         bytes32 policyId,
+        bytes32 _agentType,
         string calldata uri,
         IBAP578.AgentMetadata calldata metadata
     ) external onlyOwner returns (uint256 tokenId) {
@@ -209,11 +245,15 @@ contract AgentNFA is
         _accountOf[tokenId] = address(account);
         _policyIdOf[tokenId] = policyId;
 
+        // V3.0: Set agent type
+        agentType[tokenId] = _agentType;
+
         // BAP-578: initialize metadata and status
         _metadata[tokenId] = metadata;
         _agentStatus[tokenId] = IBAP578.Status.Active;
 
         emit AgentMinted(tokenId, to, address(account), policyId);
+        emit AgentTypeSet(tokenId, _agentType);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -535,7 +575,7 @@ contract AgentNFA is
     //                    BAP-578: LIFECYCLE
     // ═══════════════════════════════════════════════════════════
 
-    /// @notice Pause a specific agent (owner only)
+    /// @notice Pause a specific agent (owner only) — BAP-578 lifecycle
     function pauseAgent(uint256 tokenId) external override(IBAP578) {
         if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
         if (_agentStatus[tokenId] == IBAP578.Status.Terminated)
@@ -544,7 +584,7 @@ contract AgentNFA is
         emit StatusChanged(_accountOf[tokenId], IBAP578.Status.Paused);
     }
 
-    /// @notice Unpause a specific agent (owner only)
+    /// @notice Unpause a specific agent (owner only) — BAP-578 lifecycle
     function unpauseAgent(uint256 tokenId) external override(IBAP578) {
         if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
         if (_agentStatus[tokenId] == IBAP578.Status.Terminated)
@@ -558,6 +598,24 @@ contract AgentNFA is
         if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
         _agentStatus[tokenId] = IBAP578.Status.Terminated;
         emit StatusChanged(_accountOf[tokenId], IBAP578.Status.Terminated);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //       V3.0: Per-Instance Pause (Circuit Breaker)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Pause a specific agent instance (owner or renter)
+    function pauseAgentInstance(uint256 tokenId) external {
+        _requireOwnerOrRenter(tokenId);
+        agentPaused[tokenId] = true;
+        emit AgentInstancePaused(tokenId);
+    }
+
+    /// @notice Unpause a specific agent instance (owner or renter)
+    function unpauseAgentInstance(uint256 tokenId) external {
+        _requireOwnerOrRenter(tokenId);
+        agentPaused[tokenId] = false;
+        emit AgentInstanceUnpaused(tokenId);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -698,6 +756,45 @@ contract AgentNFA is
     }
 
     // ═══════════════════════════════════════════════════════════
+    //          V3.0: BAP-578 Reserved API (setter only)
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Enable learning module for an agent (V3.1+)
+    /// @dev M-1 fix: restricted to owner only — renter must not set arbitrary module address
+    function enableLearning(uint256 tokenId, address _module) external {
+        if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
+        // Validate that _module is a deployed contract
+        if (_module != address(0) && _module.code.length == 0) {
+            revert Errors.InvalidLogicAddress();
+        }
+        learningModule[tokenId] = _module;
+        learningEnabled[tokenId] = true;
+    }
+
+    /// @notice Update learning tree root (only learning module can call)
+    function updateLearningRoot(uint256 tokenId, bytes32 newRoot) external {
+        require(msg.sender == learningModule[tokenId], "Only learning module");
+        learningTreeRoot[tokenId] = newRoot;
+        learningVersion[tokenId]++;
+        lastLearningUpdate[tokenId] = block.timestamp;
+    }
+
+    /// @notice Set memory module registry (V3.1+)
+    function setMemoryRegistry(uint256 tokenId, address registry) external {
+        _requireOwnerOrRenter(tokenId);
+        memoryRegistry[tokenId] = registry;
+    }
+
+    /// @notice Set vault permission manager (V3.1+)
+    function setVaultPermissionManager(
+        uint256 tokenId,
+        address manager
+    ) external {
+        _requireOwnerOrRenter(tokenId);
+        vaultPermissionManager[tokenId] = manager;
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //                    INTERNAL
     // ═══════════════════════════════════════════════════════════
 
@@ -739,11 +836,24 @@ contract AgentNFA is
     }
 
     /// @dev Check that the agent is not paused or terminated
+    /// @dev V3.0: Also checks per-instance pause (Circuit Breaker)
     function _checkAgentActive(uint256 tokenId) internal view {
+        // V3.0: Per-instance pause (Circuit Breaker)
+        if (agentPaused[tokenId]) revert Errors.AgentPaused(tokenId);
+        // BAP-578 lifecycle status
         IBAP578.Status status = _agentStatus[tokenId];
         if (status == IBAP578.Status.Paused) revert Errors.AgentPaused(tokenId);
         if (status == IBAP578.Status.Terminated)
             revert Errors.AgentTerminated(tokenId);
+    }
+
+    /// @dev Require msg.sender to be owner or renter of the token
+    function _requireOwnerOrRenter(uint256 tokenId) internal view {
+        address tokenOwner = ownerOf(tokenId);
+        address renter = userOf(tokenId);
+        if (msg.sender != tokenOwner && msg.sender != renter) {
+            revert Errors.Unauthorized();
+        }
     }
 
     /// @dev Extract the 4-byte selector from calldata bytes (works with both memory and calldata)

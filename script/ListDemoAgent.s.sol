@@ -70,6 +70,7 @@ contract ListDemoAgent is Script {
         uint256 tokenId = agentNFA.mintAgent(
             cfg.owner,
             cfg.policyId,
+            bytes32(0), // agentType (V3.0)
             cfg.tokenURI,
             metadata
         );

@@ -34,6 +34,7 @@ contract MintTestAgents is Script {
         uint256 tokenId1 = agentNFA.mintAgent(
             deployer,
             bytes32(uint256(1)), // policyId 1
+            bytes32(0), // agentType (V3.0)
             "https://api.shll.run/api/metadata/1",
             meta1
         );
@@ -64,6 +65,7 @@ contract MintTestAgents is Script {
         uint256 tokenId2 = agentNFA.mintAgent(
             deployer,
             bytes32(uint256(1)),
+            bytes32(0), // agentType (V3.0)
             "https://api.shll.run/api/metadata/2",
             meta2
         );

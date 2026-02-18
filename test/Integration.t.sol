@@ -121,6 +121,7 @@ contract IntegrationTest is Test {
             owner,
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes32("default"),
+            bytes32(0), // agentType (V3.0)
             "ipfs://agent1",
             sampleMetadata
         );

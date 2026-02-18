@@ -147,13 +147,25 @@ contract GasComparisonTest is Test {
         });
 
         // V2 template
-        uint256 tplV2 = nfaV2.mintAgent(owner, bytes32(0), "ipfs://t", meta);
+        uint256 tplV2 = nfaV2.mintAgent(
+            owner,
+            bytes32(0),
+            bytes32(0),
+            "ipfs://t",
+            meta
+        );
         nfaV2.registerTemplate(tplV2, bytes32("p"), "ipfs://p");
         lmV2.createTemplateListing(address(nfaV2), tplV2, 1 ether, 1);
         bytes32 lidV2 = lmV2.getListingId(address(nfaV2), tplV2);
 
         // V3 template
-        uint256 tplV3 = nfaV3.mintAgent(owner, bytes32(0), "ipfs://t", meta);
+        uint256 tplV3 = nfaV3.mintAgent(
+            owner,
+            bytes32(0),
+            bytes32(0),
+            "ipfs://t",
+            meta
+        );
         nfaV3.registerTemplate(tplV3, bytes32("p"), "ipfs://p");
         lmV3.createTemplateListing(address(nfaV3), tplV3, 1 ether, 1);
         bytes32 lidV3 = lmV3.getListingId(address(nfaV3), tplV3);

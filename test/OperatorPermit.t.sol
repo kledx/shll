@@ -48,6 +48,7 @@ contract OperatorPermitTest is Test {
             address(0xABCD),
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes32("default"),
+            bytes32(0), // agentType (V3.0)
             "ipfs://agent",
             _emptyMetadata()
         );

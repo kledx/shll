@@ -104,6 +104,7 @@ contract V1_4_IntegrationTest is Test {
         uint256 templateId = nfa.mintAgent(
             owner,
             bytes32(0),
+            bytes32(0), // agentType (V3.0)
             "ipfs://template",
             meta
         );

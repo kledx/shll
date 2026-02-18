@@ -150,6 +150,7 @@ contract SetupAndListV15 is Script {
         uint256 tokenId = nfa.mintAgent(
             owner,
             bytes32(uint256(POLICY_ID)),
+            bytes32(0), // agentType (V3.0)
             "https://shll.run/api/metadata/0",
             metadata
         );
