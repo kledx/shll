@@ -101,7 +101,12 @@ contract AgentNFA is
     /// @notice tokenId => agent type identifier
     mapping(uint256 => bytes32) public agentType;
 
-    /// @notice Agent type constants (add more in V3.1+)
+    /// @notice Agent type constants
+    /// ╔═══════════════════════════════════════════════════════╗
+    /// ║  SYNC REQUIRED: When adding a new type here, also    ║
+    /// ║  add it to shll-indexer KNOWN_TYPES array:           ║
+    /// ║  → repos/shll-indexer/src/AgentNFA.ts                ║
+    /// ╚═══════════════════════════════════════════════════════╝
     bytes32 public constant TYPE_DCA = keccak256("dca");
     bytes32 public constant TYPE_LLM_TRADER = keccak256("llm_trader");
 
