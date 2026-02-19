@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {
+    Ownable2Step,
+    Ownable
+} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {
     ReentrancyGuard
 } from "openzeppelin-contracts/contracts/security/ReentrancyGuard.sol";
@@ -9,14 +12,14 @@ import {IAgentNFA} from "./interfaces/IAgentNFA.sol";
 import {
     IERC721
 } from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
-import {InstanceConfig} from "./InstanceConfig.sol";
+import {IPolicyGuard} from "./interfaces/IPolicyGuard.sol";
 import {Errors} from "./libs/Errors.sol";
 
 /// @title ListingManager — Agent rental marketplace
 /// @notice Handles listing, renting, extending, and canceling Agent NFA rentals
 /// @dev Production-grade: per-listing gracePeriod, maxDays, pauseRenting
 ///      V1.3: Template listings + Rent-to-Mint flow
-contract ListingManager is Ownable, ReentrancyGuard {
+contract ListingManager is Ownable2Step, ReentrancyGuard {
     struct Listing {
         address nfa; // AgentNFA contract
         uint256 tokenId; // NFA token ID
@@ -55,8 +58,8 @@ contract ListingManager is Ownable, ReentrancyGuard {
     /// @notice listingId => owner has paused renting
     mapping(bytes32 => bool) public rentingPaused;
 
-    /// @notice V1.4: Instance parameters configuration registry
-    address public instanceConfig;
+    /// @notice V3.0: PolicyGuard contract address (for binding instances)
+    address public policyGuard;
 
     // ─── Events ───
     event ListingCreated(
@@ -108,10 +111,11 @@ contract ListingManager is Ownable, ReentrancyGuard {
     constructor() {}
 
     /**
-     * @notice Set the InstanceConfig contract address (V1.4)
+     * @notice Set the PolicyGuard contract address (V3.0)
      */
-    function setInstanceConfig(address _instanceConfig) external onlyOwner {
-        instanceConfig = _instanceConfig;
+    function setPolicyGuard(address _policyGuard) external onlyOwner {
+        if (_policyGuard == address(0)) revert Errors.ZeroAddress();
+        policyGuard = _policyGuard;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -283,15 +287,13 @@ contract ListingManager is Ownable, ReentrancyGuard {
      * @notice V1.4: Rent-to-Mint with instance-level parameters
      * @param listingId The template listing ID
      * @param daysToRent Number of days to rent
-     * @param policyId The policy ID to bind (must match template)
-     * @param version The policy version to bind
      * @param paramsPacked ABI-encoded InstanceParams
      */
     function rentToMintWithParams(
         bytes32 listingId,
         uint32 daysToRent,
-        uint32 policyId,
-        uint16 version,
+        uint32,
+        uint16,
         bytes calldata paramsPacked
     ) external payable nonReentrant returns (uint256 instanceId) {
         Listing storage listing = listings[listingId];
@@ -300,7 +302,7 @@ contract ListingManager is Ownable, ReentrancyGuard {
         if (rentingPaused[listingId]) revert Errors.RentingPaused();
         if (daysToRent < listing.minDays)
             revert Errors.MinDaysNotMet(daysToRent, listing.minDays);
-        if (instanceConfig == address(0)) revert Errors.ExecutionFailed();
+        if (policyGuard == address(0)) revert Errors.ExecutionFailed();
 
         // Calculate payment
         uint256 totalCost = uint256(listing.pricePerDay) * uint256(daysToRent);
@@ -318,13 +320,12 @@ contract ListingManager is Ownable, ReentrancyGuard {
             paramsPacked
         );
 
-        // H-2 fix: Bind config via direct interface call (not low-level)
-        InstanceConfig(instanceConfig).bindConfig(
-            instanceId,
-            policyId,
-            version,
-            paramsPacked
+        // V3.0: Bind instance to template in PolicyGuardV4
+        // M-3 fix: use stored templateKey (frozen at registerTemplate) not agentType
+        bytes32 templateKey = IAgentNFA(listing.nfa).templateKeyOf(
+            listing.tokenId
         );
+        IPolicyGuard(policyGuard).bindInstance(instanceId, templateKey);
 
         // Track rental income
         pendingWithdrawals[listing.owner] += totalCost;

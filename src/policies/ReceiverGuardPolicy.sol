@@ -10,9 +10,16 @@ contract ReceiverGuardPolicy is IPolicy {
     // ─── Storage ───
     address public immutable agentNFA;
 
-    // ─── Selectors ───
-    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739;
-    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5;
+    // --- Selectors: All PancakeSwap V2 Router swap variants ---
+    // Group A: same decode layout as swapExactTokensForTokens (5 params: amount, amount, path, to, deadline)
+    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens
+    bytes4 private constant SWAP_TOKENS_EXACT = 0x8803dbee; // swapTokensForExactTokens
+    bytes4 private constant SWAP_TOKENS_EXACT_ETH = 0x4a25d94a; // swapTokensForExactETH
+    bytes4 private constant SWAP_EXACT_TOKENS_ETH = 0x791ac947; // swapExactTokensForETHSupportingFeeOnTransferTokens
+    bytes4 private constant SWAP_EXACT_TOKENS_FEE = 0x5c11d795; // swapExactTokensForTokensSupportingFeeOnTransferTokens
+    // Group B: same decode layout as swapExactETHForTokens (4 params: amount, path, to, deadline)
+    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5; // swapExactETHForTokens
+    bytes4 private constant SWAP_EXACT_ETH_FEE = 0xb6f9de95; // swapExactETHForTokensSupportingFeeOnTransferTokens
 
     constructor(address _nfa) {
         agentNFA = _nfa;
@@ -32,9 +39,18 @@ contract ReceiverGuardPolicy is IPolicy {
     ) external view override returns (bool ok, string memory reason) {
         address recipient;
 
-        if (selector == SWAP_EXACT_TOKENS) {
+        // Group A: 5-param swap decode (swapExactTokensForTokens layout)
+        if (
+            selector == SWAP_EXACT_TOKENS ||
+            selector == SWAP_TOKENS_EXACT ||
+            selector == SWAP_TOKENS_EXACT_ETH ||
+            selector == SWAP_EXACT_TOKENS_ETH ||
+            selector == SWAP_EXACT_TOKENS_FEE
+        ) {
             (, , , recipient, ) = CalldataDecoder.decodeSwap(callData);
-        } else if (selector == SWAP_EXACT_ETH) {
+        } else if (
+            selector == SWAP_EXACT_ETH || selector == SWAP_EXACT_ETH_FEE
+        ) {
             (, , recipient, ) = CalldataDecoder.decodeSwapETH(callData);
         } else {
             // Non-swap actions pass through

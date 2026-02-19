@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {AgentNFA} from "../src/AgentNFA.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
-import {PolicyGuard} from "../src/PolicyGuard.sol";
+import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {Action} from "../src/types/Action.sol";
 import {Errors} from "../src/libs/Errors.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
@@ -17,7 +17,7 @@ contract MockTarget {
 
 contract OperatorPermitTest is Test {
     AgentNFA internal nfa;
-    PolicyGuard internal guard;
+    PolicyGuardV4 internal guard;
     MockTarget internal target;
 
     uint256 internal tokenId;
@@ -40,7 +40,7 @@ contract OperatorPermitTest is Test {
     function setUp() public {
         renter = vm.addr(renterPk);
 
-        guard = new PolicyGuard();
+        guard = new PolicyGuardV4();
         nfa = new AgentNFA(address(guard));
         target = new MockTarget();
 
@@ -53,9 +53,6 @@ contract OperatorPermitTest is Test {
             _emptyMetadata()
         );
         account = nfa.accountOf(tokenId);
-
-        guard.setTargetAllowed(address(target), true);
-        guard.setSelectorAllowed(address(target), target.ping.selector, true);
     }
 
     function test_setOperatorWithSig_success() public {

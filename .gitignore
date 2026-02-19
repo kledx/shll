@@ -23,3 +23,5 @@ node_modules/
 build_output*
 .DS_Store
 Thumbs.db
+# Mainnet env (contains sensitive config)
+.env.mainnet

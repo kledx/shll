@@ -85,7 +85,7 @@ contract SetupV30Templates is Script {
         console.log("DCA Template Agent minted, tokenId:", dcaTokenId);
 
         // Register as template
-        nfa.registerTemplate(dcaTokenId, TEMPLATE_DCA, "dca-v3");
+        nfa.registerTemplate(dcaTokenId, TEMPLATE_DCA);
         console.log("DCA template registered with key:");
         console.logBytes32(TEMPLATE_DCA);
 
@@ -170,7 +170,7 @@ contract SetupV30Templates is Script {
         console.log("LLM Trader Template minted, tokenId:", llmTokenId);
 
         // Register as template
-        nfa.registerTemplate(llmTokenId, TEMPLATE_LLM, "llm-trader-v3");
+        nfa.registerTemplate(llmTokenId, TEMPLATE_LLM);
         console.log("LLM Trader template registered with key:");
         console.logBytes32(TEMPLATE_LLM);
 

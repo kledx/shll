@@ -73,7 +73,8 @@ contract DexWhitelistPolicy is IPolicy {
         bytes calldata,
         uint256
     ) external view override returns (bool ok, string memory reason) {
-        // If no whitelist configured, allow all
+        // SECURITY WARNING (H-2): Fail-open by design — empty whitelist = all DEXes allowed.
+        // Deployer MUST configure DEX whitelist per-instance after setup.
         if (_dexList[instanceId].length == 0) return (true, "");
 
         if (!dexAllowed[instanceId][target]) {

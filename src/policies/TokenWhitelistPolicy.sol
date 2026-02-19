@@ -16,9 +16,16 @@ contract TokenWhitelistPolicy is IPolicy {
     address public immutable guard;
     address public immutable agentNFA;
 
-    // ─── Selectors ───
-    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739;
-    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5;
+    // --- Selectors: All PancakeSwap V2 Router swap variants ---
+    // Group A: 5-param layout (amount, amount, path, to, deadline)
+    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens
+    bytes4 private constant SWAP_TOKENS_EXACT = 0x8803dbee; // swapTokensForExactTokens
+    bytes4 private constant SWAP_TOKENS_EXACT_ETH = 0x4a25d94a; // swapTokensForExactETH
+    bytes4 private constant SWAP_EXACT_TOKENS_ETH = 0x791ac947; // swapExactTokensForETHSupportingFeeOnTransferTokens
+    bytes4 private constant SWAP_EXACT_TOKENS_FEE = 0x5c11d795; // swapExactTokensForTokensSupportingFeeOnTransferTokens
+    // Group B: 4-param layout (amount, path, to, deadline)
+    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5; // swapExactETHForTokens
+    bytes4 private constant SWAP_EXACT_ETH_FEE = 0xb6f9de95; // swapExactETHForTokensSupportingFeeOnTransferTokens
 
     // ─── Events ───
     event TokenAdded(uint256 indexed instanceId, address indexed token);
@@ -79,15 +86,25 @@ contract TokenWhitelistPolicy is IPolicy {
         bytes calldata callData,
         uint256
     ) external view override returns (bool ok, string memory reason) {
-        // If no whitelist configured, allow all
+        // SECURITY WARNING (H-2): Fail-open by design — empty whitelist = all tokens allowed.
+        // Deployer MUST configure token whitelist per-instance after setup.
         if (_tokenList[instanceId].length == 0) return (true, "");
 
-        if (selector == SWAP_EXACT_TOKENS) {
+        // Group A: 5-param swap decode (swapExactTokensForTokens layout)
+        if (
+            selector == SWAP_EXACT_TOKENS ||
+            selector == SWAP_TOKENS_EXACT ||
+            selector == SWAP_TOKENS_EXACT_ETH ||
+            selector == SWAP_EXACT_TOKENS_ETH ||
+            selector == SWAP_EXACT_TOKENS_FEE
+        ) {
             (, , address[] memory path, , ) = CalldataDecoder.decodeSwap(
                 callData
             );
             return _checkPath(instanceId, path);
-        } else if (selector == SWAP_EXACT_ETH) {
+        } else if (
+            selector == SWAP_EXACT_ETH || selector == SWAP_EXACT_ETH_FEE
+        ) {
             (, address[] memory path, , ) = CalldataDecoder.decodeSwapETH(
                 callData
             );

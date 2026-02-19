@@ -8,12 +8,18 @@ import {
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {ICommittable} from "../interfaces/ICommittable.sol";
 import {IERC4907} from "../interfaces/IERC4907.sol";
+import {IInstanceInitializable} from "../interfaces/IInstanceInitializable.sol";
 import {CalldataDecoder} from "../libs/CalldataDecoder.sol";
 
 /// @title SpendingLimitPolicy — Per-tx and daily spending limits with slippage guard
 /// @notice Includes maxSlippageBps (no separate SlippageGuardPolicy needed).
 ///         Implements ICommittable to accumulate daily spend after execution.
-contract SpendingLimitPolicy is IPolicy, ICommittable, ERC165 {
+contract SpendingLimitPolicy is
+    IPolicy,
+    ICommittable,
+    IInstanceInitializable,
+    ERC165
+{
     // ─── Types ───
     struct Limits {
         uint256 maxPerTx;
@@ -110,6 +116,26 @@ contract SpendingLimitPolicy is IPolicy, ICommittable, ERC165 {
         instanceTemplate[instanceId] = templateId;
     }
 
+    /// @notice Atomic init: copy template ceiling to instance limits (fail-close default)
+    /// @dev Called by PolicyGuardV4.bindInstance() via IInstanceInitializable
+    function initInstance(
+        uint256 instanceId,
+        bytes32 templateKey
+    ) external override {
+        if (msg.sender != guard) revert OnlyGuard();
+        instanceTemplate[instanceId] = templateKey;
+
+        // Copy ceiling as default instance limits (renter can lower later)
+        Limits storage ceiling = templateCeiling[templateKey];
+        if (ceiling.maxPerTx > 0 || ceiling.maxPerDay > 0) {
+            instanceLimits[instanceId] = Limits(
+                ceiling.maxPerTx,
+                ceiling.maxPerDay,
+                ceiling.maxSlippageBps
+            );
+        }
+    }
+
     // ═══════════════════════════════════════════════════════
     //                 RENTER: Set Limits
     // ═══════════════════════════════════════════════════════
@@ -157,13 +183,16 @@ contract SpendingLimitPolicy is IPolicy, ICommittable, ERC165 {
         uint256 instanceId,
         address,
         address,
-        bytes4 selector,
-        bytes calldata callData,
+        bytes4,
+        bytes calldata,
         uint256 value
     ) external view override returns (bool ok, string memory reason) {
         Limits storage limits = instanceLimits[instanceId];
 
-        // If no limits configured, pass
+        // SECURITY WARNING (H-2): Fail-open by design — no limits configured = no spending cap.
+        // Deployer MUST configure limits per-instance after setup.
+        // KNOWN LIMITATION (L-5): Only tracks native currency (msg.value / action.value).
+        // ERC20 amountIn in swaps is NOT tracked — requires oracle for cross-token comparison.
         if (limits.maxPerTx == 0 && limits.maxPerDay == 0) return (true, "");
 
         // Per-tx limit
@@ -235,6 +264,7 @@ contract SpendingLimitPolicy is IPolicy, ICommittable, ERC165 {
     ) public view virtual override returns (bool) {
         return
             interfaceId == type(ICommittable).interfaceId ||
+            interfaceId == type(IInstanceInitializable).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 

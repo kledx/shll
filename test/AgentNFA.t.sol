@@ -3,13 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Test, console} from "forge-std/Test.sol";
 import {AgentNFA} from "../src/AgentNFA.sol";
-import {PolicyGuard} from "../src/PolicyGuard.sol";
+import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
 
 /// @title AgentNFA Tests — BAP-578 Metadata & Capability Pack Integration
 contract AgentNFATest is Test {
     AgentNFA public nfa;
-    PolicyGuard public guard;
+    PolicyGuardV4 public guard;
 
     address constant OWNER = address(0x1111);
     address constant USER = address(0x2222);
@@ -22,7 +22,7 @@ contract AgentNFATest is Test {
     bytes32 constant VAULT_HASH = keccak256("sample_pack_content");
 
     function setUp() public {
-        guard = new PolicyGuard();
+        guard = new PolicyGuardV4();
         nfa = new AgentNFA(address(guard));
     }
 

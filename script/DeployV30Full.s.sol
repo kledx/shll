@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {AgentNFA} from "../src/AgentNFA.sol";
 import {ListingManager} from "../src/ListingManager.sol";
-import {InstanceConfig} from "../src/InstanceConfig.sol";
+
 import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {TokenWhitelistPolicy} from "../src/policies/TokenWhitelistPolicy.sol";
 import {SpendingLimitPolicy} from "../src/policies/SpendingLimitPolicy.sol";
@@ -45,7 +45,6 @@ contract DeployV30Full is Script {
     CooldownPolicy cooldown;
     ReceiverGuardPolicy receiverGuard;
     DexWhitelistPolicy dexWL;
-    InstanceConfig ic;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
@@ -112,11 +111,10 @@ contract DeployV30Full is Script {
         console.log("");
         console.log("Deploy Block :", block.number);
         console.log("");
-        console.log("--- Core Contracts (4) ---");
+        console.log("--- Core Contracts (3) ---");
         console.log("AgentNFA            :", address(nfa));
         console.log("PolicyGuardV4       :", address(guardV4));
         console.log("ListingManager      :", address(lm));
-        console.log("InstanceConfig      :", address(ic));
         console.log("");
         console.log("--- Policy Plugins (5) ---");
         console.log("TokenWhitelistPolicy:", address(tokenWL));
@@ -242,10 +240,7 @@ contract DeployV30Full is Script {
         console.log("  [7/9] ReceiverGuardPolicy :", address(receiverGuard));
 
         dexWL = new DexWhitelistPolicy(address(guardV4), address(nfa));
-        console.log("  [8/9] DexWhitelistPolicy  :", address(dexWL));
-
-        ic = new InstanceConfig();
-        console.log("  [9/9] InstanceConfig      :", address(ic));
+        console.log("  [8/8] DexWhitelistPolicy  :", address(dexWL));
 
         console.log("");
         console.log("  Wiring contracts...");
@@ -262,11 +257,9 @@ contract DeployV30Full is Script {
         guardV4.setListingManager(address(lm));
         console.log("  [wire] GuardV4.setListingManager -> LM");
 
-        // --- Wire: InstanceConfig <-> ListingManager ---
-        ic.setMinter(address(lm));
-        console.log("  [wire] InstanceConfig.setMinter -> LM");
-        lm.setInstanceConfig(address(ic));
-        console.log("  [wire] LM.setInstanceConfig -> IC");
+        // --- Wire: ListingManager -> PolicyGuardV4 ---
+        lm.setPolicyGuard(address(guardV4));
+        console.log("  [wire] LM.setPolicyGuard -> GuardV4");
 
         console.log("");
         console.log("  Approving policies...");
@@ -318,7 +311,7 @@ contract DeployV30Full is Script {
         console.log("  [mint]     DCA Template tokenId:", dcaTokenId);
 
         // --- Step 2: Register as template ---
-        nfa.registerTemplate(dcaTokenId, TEMPLATE_DCA, "dca-v3");
+        nfa.registerTemplate(dcaTokenId, TEMPLATE_DCA);
         console.log("  [register] Template key dca_v3");
 
         // --- Step 3: Attach 5 policies to template ---

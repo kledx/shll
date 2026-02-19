@@ -214,7 +214,8 @@ contract DeFiGuardPolicy is IPolicy {
         }
 
         // Layer 2: Selector validation
-        // If no selectors configured, skip this check (allow all functions)
+        // SECURITY WARNING (H-2): Fail-open — no selectors configured = all functions allowed.
+        // Deployer MUST configure allowed selectors.
         if (_allowedSelectorsList.length > 0) {
             // bytes4(0) = pure value transfer (no calldata), always allowed
             if (selector != bytes4(0) && !allowedSelectors[selector]) {
@@ -223,7 +224,8 @@ contract DeFiGuardPolicy is IPolicy {
         }
 
         // Layer 3: Whitelist — global OR per-instance
-        // If no global whitelist configured and no instance whitelist, allow all
+        // SECURITY WARNING (H-2): Fail-open — no whitelists = all targets allowed.
+        // Deployer MUST configure at least global whitelist.
         if (
             _globalAllowedList.length == 0 &&
             _instanceAllowedList[instanceId].length == 0

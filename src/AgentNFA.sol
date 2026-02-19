@@ -5,7 +5,10 @@ import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {
     ERC721URIStorage
 } from "openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {
+    Ownable2Step,
+    Ownable
+} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/security/Pausable.sol";
 import {
     EIP712
@@ -30,7 +33,7 @@ contract AgentNFA is
     ERC721URIStorage,
     IERC4907,
     IBAP578,
-    Ownable,
+    Ownable2Step,
     Pausable,
     EIP712
 {
@@ -90,11 +93,11 @@ contract AgentNFA is
     /// @notice templateId => immutable policyId snapshot (frozen at registration)
     mapping(uint256 => bytes32) private _templatePolicyId;
 
-    /// @notice templateId => immutable packHash snapshot (frozen at registration)
-    mapping(uint256 => bytes32) private _templatePackHash;
-
     /// @notice instanceId => keccak256(initParams) for reproducibility
     mapping(uint256 => bytes32) private _paramsHashOf;
+
+    /// @notice templateId => templateKey (frozen at registerTemplate)
+    mapping(uint256 => bytes32) public templateKeyOf;
 
     // ─── V3.0: Agent Type ───
 
@@ -167,8 +170,7 @@ contract AgentNFA is
     event TemplateListed(
         uint256 indexed templateId,
         address indexed owner,
-        bytes32 packHash,
-        string packURI,
+        bytes32 templateKey,
         bytes32 policyId
     );
     event InstanceMinted(
@@ -265,31 +267,28 @@ contract AgentNFA is
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Register an existing Agent as a Template (owner only)
-    /// @dev Freezes the current policyId and packHash — immutable after registration
+    /// @dev Freezes the current policyId — immutable after registration
     /// @param tokenId The agent tokenId to register as template
-    /// @param packHash SHA256 hash of the capability pack manifest
-    /// @param packURI URI to the published capability pack
-    function registerTemplate(
-        uint256 tokenId,
-        bytes32 packHash,
-        string calldata packURI
-    ) external {
+    /// @param templateKey Identifier for PolicyGuard template policy lookup
+    function registerTemplate(uint256 tokenId, bytes32 templateKey) external {
         _requireMinted(tokenId);
         if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
         if (_isTemplate[tokenId]) revert Errors.AlreadyTemplate(tokenId);
         // An instance cannot be registered as a template
         if (_isInstance[tokenId]) revert Errors.NotTemplate(tokenId);
+        // M-4: Template must have agentType set for runner/indexer compatibility
+        if (agentType[tokenId] == bytes32(0)) revert Errors.InvalidInitParams();
 
         _isTemplate[tokenId] = true;
         // Freeze current policyId — cannot be changed after this point
         _templatePolicyId[tokenId] = _policyIdOf[tokenId];
-        _templatePackHash[tokenId] = packHash;
+        // Store templateKey for PolicyGuardV4 binding lookup
+        templateKeyOf[tokenId] = templateKey;
 
         emit TemplateListed(
             tokenId,
             msg.sender,
-            packHash,
-            packURI,
+            templateKey,
             _policyIdOf[tokenId]
         );
     }
@@ -503,18 +502,20 @@ contract AgentNFA is
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Execute a single action through the Agent (SHLL native interface)
+    /// @dev H-1 fix: removed payable — action.value comes from AgentAccount balance, not msg.value
     function execute(
         uint256 tokenId,
         Action calldata action
-    ) external payable whenNotPaused returns (bytes memory result) {
+    ) external whenNotPaused returns (bytes memory result) {
         return _executeInternal(tokenId, action);
     }
 
     /// @notice Execute multiple actions in a batch
+    /// @dev H-1 fix: removed payable — action.value comes from AgentAccount balance, not msg.value
     function executeBatch(
         uint256 tokenId,
         Action[] calldata actions
-    ) external payable whenNotPaused returns (bytes[] memory results) {
+    ) external whenNotPaused returns (bytes[] memory results) {
         results = new bytes[](actions.length);
         for (uint256 i = 0; i < actions.length; i++) {
             results[i] = _executeInternal(tokenId, actions[i]);
@@ -716,14 +717,14 @@ contract AgentNFA is
         return _isTemplate[tokenId];
     }
 
+    /// @notice Check if a tokenId is a rented instance (minted from a template)
+    function isInstance(uint256 tokenId) external view returns (bool) {
+        return _isInstance[tokenId];
+    }
+
     /// @notice Get the template policyId (frozen at registration)
     function templatePolicyId(uint256 tokenId) external view returns (bytes32) {
         return _templatePolicyId[tokenId];
-    }
-
-    /// @notice Get the template packHash (frozen at registration)
-    function templatePackHash(uint256 tokenId) external view returns (bytes32) {
-        return _templatePackHash[tokenId];
     }
 
     /// @notice Get the templateId for an instance (0 = not an instance)
@@ -815,6 +816,11 @@ contract AgentNFA is
     }
 
     /// @dev Check execute permission and run PolicyGuard for renters
+    /// @dev DESIGN NOTE: For non-Instance tokens (templates & standalone agents),
+    ///      the owner bypasses PolicyGuard validation entirely. This is BY DESIGN —
+    ///      owners have full control over their own vault without policy constraints.
+    ///      Only Instance owners (Rent-to-Mint) and renters/operators are subject
+    ///      to PolicyGuard validation.
     function _checkExecutePermission(
         uint256 tokenId,
         address account,

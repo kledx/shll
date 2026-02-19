@@ -25,4 +25,9 @@ interface IPolicyGuard {
     /// @param tokenId The NFA token ID
     /// @param action The action that was executed
     function commit(uint256 tokenId, Action calldata action) external;
+
+    /// @notice Bind a minted instance to a template's policy set
+    /// @param instanceId The token ID of the newly minted instance
+    /// @param templateKey The template key to bind policies from
+    function bindInstance(uint256 instanceId, bytes32 templateKey) external;
 }

@@ -90,8 +90,9 @@ contract V3_0_IntegrationTest is Test {
         );
 
         // 7. Register template
+        // forge-lint: disable-next-line(unsafe-typecast)
         templateKey = bytes32("v3template");
-        nfa.registerTemplate(templateId, templateKey, "ipfs://v3");
+        nfa.registerTemplate(templateId, templateKey);
 
         // 8. Add template policies (one at a time via addTemplatePolicy)
         guardV4.addTemplatePolicy(templateKey, address(tokenWL));

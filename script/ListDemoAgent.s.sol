@@ -87,7 +87,7 @@ contract ListDemoAgent is Script {
         }
 
         // Multi-tenant only: register template first, then create template listing.
-        agentNFA.registerTemplate(tokenId, cfg.vaultHash, cfg.vaultURI);
+        agentNFA.registerTemplate(tokenId, cfg.agentTypeHash);
         console.log("Registered template tokenId:", tokenId);
 
         agentNFA.approve(address(listingManager), tokenId);

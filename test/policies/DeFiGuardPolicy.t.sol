@@ -116,7 +116,7 @@ contract DeFiGuardPolicyTest is Test {
         assertTrue(ok, "Empty whitelist should allow all");
     }
 
-    function test_removeGlobalTarget_nonWhitelisted_rejected() public {
+    function test_removeGlobalTarget_nonWhitelisted_rejected() public view {
         // With 1 global target, non-whitelisted should still be rejected
         (bool ok, string memory reason) = policy.check(
             INSTANCE_ID,

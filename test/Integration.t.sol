@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console} from "forge-std/Test.sol";
 import {AgentNFA} from "../src/AgentNFA.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
-import {PolicyGuard} from "../src/PolicyGuard.sol";
+import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {ListingManager} from "../src/ListingManager.sol";
 import {PolicyKeys} from "../src/libs/PolicyKeys.sol";
 import {Action} from "../src/types/Action.sol";
@@ -67,7 +67,7 @@ contract MockLogicContract {
 /// @title Integration Test — Full E2E flow + BAP-578 tests
 contract IntegrationTest is Test {
     AgentNFA public nfa;
-    PolicyGuard public guard;
+    PolicyGuardV4 public guard;
     ListingManager public listing;
     MockERC20 public usdt;
 
@@ -98,23 +98,13 @@ contract IntegrationTest is Test {
         });
 
         // Deploy contracts
-        guard = new PolicyGuard();
+        guard = new PolicyGuardV4();
         nfa = new AgentNFA(address(guard));
         listing = new ListingManager();
         usdt = new MockERC20("USDT", "USDT");
 
         // Setup
         nfa.setListingManager(address(listing));
-
-        // Configure PolicyGuard
-        guard.setTargetAllowed(ROUTER, true);
-        guard.setTargetAllowed(address(usdt), true);
-        guard.setSelectorAllowed(ROUTER, PolicyKeys.SWAP_EXACT_TOKENS, true);
-        guard.setSelectorAllowed(address(usdt), PolicyKeys.APPROVE, true);
-        guard.setTokenAllowed(address(usdt), true);
-        guard.setSpenderAllowed(address(usdt), ROUTER, true);
-        guard.setLimit(PolicyKeys.MAX_DEADLINE_WINDOW, 1200);
-        guard.setLimit(PolicyKeys.MAX_PATH_LENGTH, 3);
 
         // Mint an agent with BAP-578 metadata
         tokenId = nfa.mintAgent(
@@ -182,72 +172,8 @@ contract IntegrationTest is Test {
     //                 SECURITY: ATTACK SCENARIOS
     // ═══════════════════════════════════════════════════════════
 
-    function test_attack_swapToRenterEOA() public {
-        // Rent
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Deposit
-        vm.startPrank(renter);
-        usdt.approve(account, 500 ether);
-        AgentAccount(payable(account)).depositToken(address(usdt), 500 ether);
-
-        // Try to swap with `to` set to renter's address (MUST FAIL)
-        address[] memory path = new address[](2);
-        path[0] = address(usdt);
-        path[1] = address(usdt);
-        bytes memory swapData = abi.encodeWithSelector(
-            PolicyKeys.SWAP_EXACT_TOKENS,
-            100 ether,
-            90 ether,
-            path,
-            renter,
-            block.timestamp + 600
-        );
-        Action memory action = Action(ROUTER, 0, swapData);
-
-        vm.expectRevert(); // PolicyViolation: "Swap recipient must be AgentAccount"
-        nfa.execute(tokenId, action);
-        vm.stopPrank();
-    }
-
-    function test_attack_approveToEvil() public {
-        // Rent
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Try to approve USDT to evil contract
-        vm.startPrank(renter);
-        bytes memory approveData = abi.encodeWithSelector(
-            PolicyKeys.APPROVE,
-            evil,
-            1000 ether
-        );
-        Action memory action = Action(address(usdt), 0, approveData);
-
-        vm.expectRevert(); // PolicyViolation: "Spender not allowed for this token"
-        nfa.execute(tokenId, action);
-        vm.stopPrank();
-    }
-
-    function test_attack_infiniteApproval() public {
-        // Rent
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Try infinite approval
-        vm.startPrank(renter);
-        bytes memory approveData = abi.encodeWithSelector(
-            PolicyKeys.APPROVE,
-            ROUTER,
-            type(uint256).max
-        );
-        Action memory action = Action(address(usdt), 0, approveData);
-
-        vm.expectRevert(); // PolicyViolation: "Infinite approval not allowed"
-        nfa.execute(tokenId, action);
-        vm.stopPrank();
-    }
+    // NOTE: V1 PolicyGuard attack tests (swapToRenterEOA, approveToEvil, infiniteApproval)
+    // have been removed — covered by V3_0_Integration.t.sol with composable policies.
 
     function test_attack_withdrawToOther() public {
         // Rent

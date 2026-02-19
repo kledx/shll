@@ -42,22 +42,28 @@ interface IAgentNFA {
         bytes result
     );
 
+    // ─── V3.0 Events ───
+    event AgentTypeSet(uint256 indexed tokenId, bytes32 agentType);
+    event AgentInstancePaused(uint256 indexed tokenId);
+    event AgentInstanceUnpaused(uint256 indexed tokenId);
+
     // ─── Core functions ───
     function mintAgent(
         address to,
         bytes32 policyId,
-        string calldata tokenURI,
+        bytes32 _agentType,
+        string calldata uri,
         IBAP578.AgentMetadata calldata metadata
     ) external returns (uint256 tokenId);
 
     function execute(
         uint256 tokenId,
         Action calldata action
-    ) external payable returns (bytes memory result);
+    ) external returns (bytes memory result);
     function executeBatch(
         uint256 tokenId,
         Action[] calldata actions
-    ) external payable returns (bytes[] memory results);
+    ) external returns (bytes[] memory results);
 
     // ─── ERC4907 ───
     function setUser(uint256 tokenId, address user, uint64 expires) external;
@@ -86,12 +92,20 @@ interface IAgentNFA {
     ) external view returns (IBAP578.Status);
     function logicAddressOf(uint256 tokenId) external view returns (address);
 
-    //  V1.3: Template / Instance 
+    // ─── V3.0: Agent Type ───
+    function setAgentType(uint256 tokenId, bytes32 _agentType) external;
+    function agentType(uint256 tokenId) external view returns (bytes32);
+
+    // ─── V3.0: Circuit Breaker ───
+    function pauseAgentInstance(uint256 tokenId) external;
+    function unpauseAgentInstance(uint256 tokenId) external;
+    function agentPaused(uint256 tokenId) external view returns (bool);
+
+    //  V1.3: Template / Instance
     event TemplateListed(
         uint256 indexed templateId,
         address indexed owner,
-        bytes32 packHash,
-        string packURI,
+        bytes32 templateKey,
         bytes32 policyId
     );
     event InstanceMinted(
@@ -102,11 +116,7 @@ interface IAgentNFA {
         uint64 expires,
         bytes32 paramsHash
     );
-    function registerTemplate(
-        uint256 tokenId,
-        bytes32 packHash,
-        string calldata packURI
-    ) external;
+    function registerTemplate(uint256 tokenId, bytes32 templateKey) external;
     function mintInstanceFromTemplate(
         address to,
         uint256 templateId,
@@ -116,7 +126,8 @@ interface IAgentNFA {
     function templateOf(uint256 tokenId) external view returns (uint256);
     function paramsHashOf(uint256 tokenId) external view returns (bytes32);
     function isTemplate(uint256 tokenId) external view returns (bool);
+    function isInstance(uint256 tokenId) external view returns (bool);
     function templatePolicyId(uint256 tokenId) external view returns (bytes32);
-    function templatePackHash(uint256 tokenId) external view returns (bytes32);
+    function templateKeyOf(uint256 tokenId) external view returns (bytes32);
     function nextTokenId() external view returns (uint256);
 }
