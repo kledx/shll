@@ -15,6 +15,7 @@ contract ListDemoAgent is Script {
         address agentNFA;
         address listingManager;
         bytes32 policyId;
+        bytes32 agentTypeHash;
         string tokenURI;
         string persona;
         string experience;
@@ -37,6 +38,7 @@ contract ListDemoAgent is Script {
         cfg.agentNFA = vm.envAddress("AGENT_NFA");
         cfg.listingManager = vm.envAddress("LISTING_MANAGER");
         cfg.policyId = vm.envBytes32("DEMO_POLICY_ID");
+        cfg.agentTypeHash = vm.envOr("DEMO_AGENT_TYPE_HASH", bytes32(0));
         cfg.tokenURI = vm.envString("DEMO_TOKEN_URI");
         cfg.persona = vm.envString("DEMO_PERSONA_JSON");
         cfg.experience = vm.envString("DEMO_EXPERIENCE");
@@ -70,7 +72,7 @@ contract ListDemoAgent is Script {
         uint256 tokenId = agentNFA.mintAgent(
             cfg.owner,
             cfg.policyId,
-            bytes32(0), // agentType (V3.0)
+            cfg.agentTypeHash,
             cfg.tokenURI,
             metadata
         );
