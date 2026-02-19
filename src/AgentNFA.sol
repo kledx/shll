@@ -230,7 +230,7 @@ contract AgentNFA is
         IBAP578.AgentMetadata calldata metadata
     ) external onlyOwner returns (uint256 tokenId) {
         tokenId = _nextTokenId++;
-        _safeMint(to, tokenId);
+        _mint(to, tokenId);
         _setTokenURI(tokenId, uri);
 
         // Deploy a dedicated AgentAccount for this NFA

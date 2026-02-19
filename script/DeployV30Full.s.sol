@@ -47,8 +47,8 @@ contract DeployV30Full is Script {
     DexWhitelistPolicy dexWL;
 
     function run() external {
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        // When using --account, msg.sender is automatically set to the account address
+        address deployer = msg.sender;
         address router = vm.envAddress("ROUTER_ADDRESS");
         address usdt = vm.envAddress("USDT_ADDRESS");
         address wbnb = vm.envAddress("WBNB_ADDRESS");
@@ -74,7 +74,7 @@ contract DeployV30Full is Script {
         console.log("[PHASE 1] Deploying 9 contracts + wiring...");
         console.log("");
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast();
 
         _phase1_deploy(deployer);
 
@@ -94,7 +94,7 @@ contract DeployV30Full is Script {
         console.log("[PHASE 2] Setting up DCA template...");
         console.log("");
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast();
 
         _phase2_template(deployer, router, usdt, wbnb);
 
