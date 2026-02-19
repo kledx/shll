@@ -10,10 +10,8 @@ out/
 # Docs
 docs/
 
-# Dotenv file
-.env
+# Dotenv files — catch ALL variants
+.env*
+!.env.example
+!.env.*.example
 node_modules/
-.env.example
-.env.demo-agent
-.env.update-pack
-.env.demo-agent.min
