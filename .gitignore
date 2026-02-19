@@ -15,3 +15,11 @@ docs/
 !.env.example
 !.env.*.example
 node_modules/
+
+# Build & temp files
+*.log
+*.tmp
+*.bak
+build_output*
+.DS_Store
+Thumbs.db
