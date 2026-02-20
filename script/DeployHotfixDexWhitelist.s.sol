@@ -17,8 +17,9 @@ import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 contract DeployHotfixDexWhitelist is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address agentNFA = vm.envAddress("AGENT_NFA");
-        address guardV4Addr = vm.envAddress("POLICY_GUARD_V4");
+        // Hardcoded mainnet addresses to bypass .env confusion
+        address agentNFA = 0x327ec0BEa2c632A7978e9735272edE710B0F9791;
+        address guardV4Addr = 0xe8828aB104a24114A8fB3AfA5BcfCc09a069B427;
 
         vm.startBroadcast(deployerKey);
 
