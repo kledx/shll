@@ -69,13 +69,23 @@ contract DexWhitelistPolicy is IPolicy {
         uint256 instanceId,
         address,
         address target,
-        bytes4,
-        bytes calldata,
+        bytes4 selector,
+        bytes calldata data,
         uint256
     ) external view override returns (bool ok, string memory reason) {
         // SECURITY WARNING (H-2): Fail-open by design — empty whitelist = all DEXes allowed.
         // Deployer MUST configure DEX whitelist per-instance after setup.
         if (_dexList[instanceId].length == 0) return (true, "");
+
+        // If this is an ERC20 approve, we must check the spender, not the target (token)
+        // approve(address spender, uint256 amount) - selector is 0x095ea7b3
+        if (selector == bytes4(0x095ea7b3) && data.length >= 36) {
+            address spender = address(bytes20(data[16:36]));
+            if (!dexAllowed[instanceId][spender]) {
+                return (false, "DEX not whitelisted");
+            }
+            return (true, "");
+        }
 
         if (!dexAllowed[instanceId][target]) {
             return (false, "DEX not whitelisted");
