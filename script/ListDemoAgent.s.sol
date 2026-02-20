@@ -79,7 +79,7 @@ contract ListDemoAgent is Script {
         console.log("Minted demo agent tokenId:", tokenId);
         console.log("Mint owner:", cfg.owner);
 
-        // createListing requires msg.sender to be token owner.
+        // createTemplateListing requires msg.sender to be token owner.
         if (cfg.owner != deployer) {
             revert(
                 "DEMO_OWNER must be vm.addr(PRIVATE_KEY) when using this script"

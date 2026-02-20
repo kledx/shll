@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {
     ERC165
 } from "openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
@@ -44,6 +45,12 @@ contract SpendingLimitPolicy is
     mapping(uint256 => DailyTracking) public dailyTracking;
     /// @notice Instance → template mapping (for ceiling lookup)
     mapping(uint256 => bytes32) public instanceTemplate;
+    /// @notice Template ceiling for ERC20 approve amount
+    mapping(bytes32 => uint256) public templateApproveCeiling;
+    /// @notice Instance-level ERC20 approve limit
+    mapping(uint256 => uint256) public instanceApproveLimit;
+    /// @notice Owner-approved spenders for ERC20 approve
+    mapping(address => bool) public approvedSpender;
 
     address public immutable guard;
     address public immutable agentNFA;
@@ -51,6 +58,9 @@ contract SpendingLimitPolicy is
     // ─── Selectors ───
     bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739;
     bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5;
+    bytes4 private constant APPROVE = 0x095ea7b3;
+    bytes4 private constant TRANSFER = 0xa9059cbb;
+    bytes4 private constant TRANSFER_FROM = 0x23b872dd;
 
     // ─── Events ───
     event TemplateCeilingSet(
@@ -70,6 +80,15 @@ contract SpendingLimitPolicy is
         uint256 spentToday,
         uint32 dayIndex
     );
+    event TemplateApproveCeilingSet(
+        bytes32 indexed templateId,
+        uint256 maxApproveAmount
+    );
+    event InstanceApproveLimitSet(
+        uint256 indexed instanceId,
+        uint256 maxApproveAmount
+    );
+    event ApprovedSpenderSet(address indexed spender, bool allowed);
 
     // ─── Errors ───
     error NotRenterOrOwner();
@@ -107,6 +126,23 @@ contract SpendingLimitPolicy is
         );
     }
 
+    /// @notice Owner sets max ERC20 approve amount ceiling for a template
+    function setTemplateApproveCeiling(
+        bytes32 templateId,
+        uint256 maxApproveAmount
+    ) external {
+        require(msg.sender == Ownable(guard).owner(), "Only owner");
+        templateApproveCeiling[templateId] = maxApproveAmount;
+        emit TemplateApproveCeilingSet(templateId, maxApproveAmount);
+    }
+
+    /// @notice Owner configures which spender addresses can receive approvals
+    function setApprovedSpender(address spender, bool allowed) external {
+        require(msg.sender == Ownable(guard).owner(), "Only owner");
+        approvedSpender[spender] = allowed;
+        emit ApprovedSpenderSet(spender, allowed);
+    }
+
     /// @notice Bind instance to template (called by guard during instance creation)
     function bindInstanceTemplate(
         uint256 instanceId,
@@ -133,6 +169,10 @@ contract SpendingLimitPolicy is
                 ceiling.maxPerDay,
                 ceiling.maxSlippageBps
             );
+        }
+        uint256 approveCeiling = templateApproveCeiling[templateKey];
+        if (approveCeiling > 0) {
+            instanceApproveLimit[instanceId] = approveCeiling;
         }
     }
 
@@ -175,6 +215,20 @@ contract SpendingLimitPolicy is
         emit InstanceLimitsSet(instanceId, maxPerTx, maxPerDay, maxSlippageBps);
     }
 
+    /// @notice Renter sets instance approve limit (must be <= template approve ceiling)
+    function setApproveLimit(
+        uint256 instanceId,
+        uint256 maxApproveAmount
+    ) external {
+        _checkRenterOrOwner(instanceId);
+        bytes32 tid = instanceTemplate[instanceId];
+        uint256 ceiling = templateApproveCeiling[tid];
+        require(ceiling > 0, "Approve ceiling not configured");
+        if (maxApproveAmount > ceiling) revert ExceedsCeiling("maxApproveAmount");
+        instanceApproveLimit[instanceId] = maxApproveAmount;
+        emit InstanceApproveLimitSet(instanceId, maxApproveAmount);
+    }
+
     // ═══════════════════════════════════════════════════════
     //                   IPolicy INTERFACE
     // ═══════════════════════════════════════════════════════
@@ -183,16 +237,40 @@ contract SpendingLimitPolicy is
         uint256 instanceId,
         address,
         address,
-        bytes4,
-        bytes calldata,
+        bytes4 selector,
+        bytes calldata callData,
         uint256 value
     ) external view override returns (bool ok, string memory reason) {
         Limits storage limits = instanceLimits[instanceId];
 
+        // Block direct ERC20 outflow paths regardless of native value limits.
+        if (selector == TRANSFER || selector == TRANSFER_FROM) {
+            return (false, "Direct ERC20 transfer blocked");
+        }
+
+        // approve(address spender, uint256 amount) must be strictly controlled.
+        if (selector == APPROVE) {
+            (address spender, uint256 amount) = CalldataDecoder.decodeApprove(
+                callData
+            );
+            if (!approvedSpender[spender]) {
+                return (false, "Approve spender not allowed");
+            }
+            if (amount == type(uint256).max) {
+                return (false, "Infinite approval not allowed");
+            }
+            uint256 maxApprove = instanceApproveLimit[instanceId];
+            if (maxApprove == 0) {
+                return (false, "Approve limit not configured");
+            }
+            if (amount > maxApprove) {
+                return (false, "Approve exceeds limit");
+            }
+        }
+
         // SECURITY WARNING (H-2): Fail-open by design — no limits configured = no spending cap.
         // Deployer MUST configure limits per-instance after setup.
-        // KNOWN LIMITATION (L-5): Only tracks native currency (msg.value / action.value).
-        // ERC20 amountIn in swaps is NOT tracked — requires oracle for cross-token comparison.
+        // Native value spending is tracked here; ERC20 direct outflow paths are blocked above.
         if (limits.maxPerTx == 0 && limits.maxPerDay == 0) return (true, "");
 
         // Per-tx limit
@@ -273,9 +351,18 @@ contract SpendingLimitPolicy is
     // ═══════════════════════════════════════════════════════
 
     function _checkRenterOrOwner(uint256 instanceId) internal view {
+        if (msg.sender == Ownable(guard).owner()) return;
         address renter = IERC4907(agentNFA).userOf(instanceId);
-        if (msg.sender != renter && msg.sender != Ownable(guard).owner()) {
-            revert NotRenterOrOwner();
+        if (msg.sender == renter) return;
+        if (agentNFA.code.length > 0) {
+            (bool ownerOk, bytes memory ownerData) = agentNFA.staticcall(
+                abi.encodeWithSelector(IERC721.ownerOf.selector, instanceId)
+            );
+            if (ownerOk && ownerData.length >= 32) {
+                address tokenOwner = abi.decode(ownerData, (address));
+                if (msg.sender == tokenOwner) return;
+            }
         }
+        revert NotRenterOrOwner();
     }
 }

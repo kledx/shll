@@ -286,7 +286,7 @@ contract AgentNFATest is Test {
             experience: "Dollar-cost averaging specialist",
             voiceHash: "QmVoice2",
             animationURI: "https://shll.run/animations/investor.mp4",
-            vaultURI: "https://shll.run/packs/dca.json",
+            vaultURI: "https://shll.run/packs/llm-base.json",
             vaultHash: keccak256("dca_pack")
         });
 
@@ -313,7 +313,7 @@ contract AgentNFATest is Test {
         );
 
         assertEq(retrieved1.vaultURI, "https://shll.run/packs/hotpump.json");
-        assertEq(retrieved2.vaultURI, "https://shll.run/packs/dca.json");
+        assertEq(retrieved2.vaultURI, "https://shll.run/packs/llm-base.json");
         assertTrue(
             retrieved1.vaultHash != retrieved2.vaultHash,
             "Different packs should have different hashes"

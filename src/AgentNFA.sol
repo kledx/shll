@@ -110,7 +110,6 @@ contract AgentNFA is
     /// ║  add it to shll-indexer KNOWN_TYPES array:           ║
     /// ║  → repos/shll-indexer/src/AgentNFA.ts                ║
     /// ╚═══════════════════════════════════════════════════════╝
-    bytes32 public constant TYPE_DCA = keccak256("dca");
     bytes32 public constant TYPE_LLM_TRADER = keccak256("llm_trader");
 
     // ─── V3.1+ Reserved Slots: REMOVED to meet EIP-170 (24KB) ───
@@ -252,7 +251,7 @@ contract AgentNFA is
     /// @notice Admin-only: set or update the agent type for an existing token
     /// @dev Used to fix instances minted before V3.1 or to correct misconfigurations
     /// @param tokenId The agent tokenId to update
-    /// @param _agentType The new agent type hash (e.g. TYPE_DCA, TYPE_LLM_TRADER)
+    /// @param _agentType The new agent type hash (e.g. TYPE_LLM_TRADER)
     function setAgentType(
         uint256 tokenId,
         bytes32 _agentType
@@ -273,6 +272,7 @@ contract AgentNFA is
     function registerTemplate(uint256 tokenId, bytes32 templateKey) external {
         _requireMinted(tokenId);
         if (msg.sender != ownerOf(tokenId)) revert Errors.OnlyOwner();
+        if (templateKey == bytes32(0)) revert Errors.InvalidInitParams();
         if (_isTemplate[tokenId]) revert Errors.AlreadyTemplate(tokenId);
         // An instance cannot be registered as a template
         if (_isInstance[tokenId]) revert Errors.NotTemplate(tokenId);
@@ -532,7 +532,7 @@ contract AgentNFA is
     function executeAction(
         uint256 tokenId,
         bytes calldata data
-    ) external override(IBAP578) {
+    ) external override(IBAP578) whenNotPaused {
         Action memory action = abi.decode(data, (Action));
         _executeInternal(tokenId, action);
 

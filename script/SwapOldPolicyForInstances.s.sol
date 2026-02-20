@@ -13,32 +13,41 @@ import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 /// Required env vars:
 ///   PRIVATE_KEY        — deployer (must be owner of PolicyGuardV4 to bypass renter check)
 ///   POLICY_GUARD_V4    — existing PolicyGuardV4 address
-///   OLD_POLICY         — the old buggy DexWhitelistPolicy address
 ///   NEW_POLICY         — the new fixed DexWhitelistPolicy address
 ///   TOKEN_IDS          — comma-separated list of token IDs to fix (e.g., "1,2,3")
 contract SwapOldPolicyForInstances is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address guardV4Addr = vm.envAddress("POLICY_GUARD_V4");
-        address oldPolicy = vm.envAddress("OLD_POLICY");
         address newPolicy = vm.envAddress("NEW_POLICY");
 
         string[] memory tokenIdsStr = vm.envString("TOKEN_IDS", ",");
 
+        uint256[] memory tokenIds = new uint256[](tokenIdsStr.length);
+        for (uint256 i = 0; i < tokenIdsStr.length; i++) {
+            tokenIds[i] = vm.parseUint(tokenIdsStr[i]);
+        }
+
         vm.startBroadcast(deployerKey);
         PolicyGuardV4 guard = PolicyGuardV4(guardV4Addr);
 
-        for (uint256 i = 0; i < tokenIdsStr.length; i++) {
-            uint256 tokenId = vm.parseUint(tokenIdsStr[i]);
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
 
             // Get active policies
             address[] memory policies = guard.getActivePolicies(tokenId);
             int256 oldIndex = -1;
 
             for (uint256 j = 0; j < policies.length; j++) {
-                if (policies[j] == oldPolicy) {
-                    oldIndex = int256(j);
-                    break;
+                try DexWhitelistPolicy(policies[j]).policyType() returns (
+                    bytes32 pt
+                ) {
+                    if (pt == keccak256("dex_whitelist")) {
+                        oldIndex = int256(j);
+                        break;
+                    }
+                } catch {
+                    // Not a DexWhitelistPolicy
                 }
             }
 

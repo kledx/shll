@@ -13,6 +13,7 @@ import {IPolicy} from "./interfaces/IPolicy.sol";
 import {ICommittable} from "./interfaces/ICommittable.sol";
 import {IERC4907} from "./interfaces/IERC4907.sol";
 import {IInstanceInitializable} from "./interfaces/IInstanceInitializable.sol";
+import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {Action} from "./types/Action.sol";
 
 /// @title PolicyGuardV4 — Composable Policy Engine (V3.0)
@@ -87,6 +88,8 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
     error DuplicatePolicy(address policy);
     error OnlyAgentNFA();
     error OnlyListingManager();
+    error EmptyTemplateId();
+    error EmptyTemplatePolicies(bytes32 templateId);
 
     // ═══════════════════════════════════════════════════════
     //                       CONSTRUCTOR
@@ -135,9 +138,13 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
     ) external onlyOwner {
         if (!approvedPolicies[policy]) revert PolicyNotApproved(policy);
         // H-3 fix: enforce cap on template policies
-        if (_templatePolicies[templateId].length >= MAX_POLICIES_PER_INSTANCE)
+        address[] storage templatePolicies = _templatePolicies[templateId];
+        if (templatePolicies.length >= MAX_POLICIES_PER_INSTANCE)
             revert TooManyPolicies();
-        _templatePolicies[templateId].push(policy);
+        for (uint256 i = 0; i < templatePolicies.length; i++) {
+            if (templatePolicies[i] == policy) revert DuplicatePolicy(policy);
+        }
+        templatePolicies.push(policy);
         emit TemplatePolicyAdded(templateId, policy);
     }
 
@@ -163,6 +170,9 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
     function bindInstance(uint256 instanceId, bytes32 templateId) external {
         if (msg.sender != listingManager && msg.sender != owner())
             revert OnlyListingManager();
+        if (templateId == bytes32(0)) revert EmptyTemplateId();
+        if (_templatePolicies[templateId].length == 0)
+            revert EmptyTemplatePolicies(templateId);
         instanceTemplateId[instanceId] = templateId;
 
         // Atomic policy initialization: close the fail-open gap
@@ -196,44 +206,44 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
     function addInstancePolicy(uint256 instanceId, address policy) external {
         _checkRenterOrOwner(instanceId);
         if (!approvedPolicies[policy]) revert PolicyNotApproved(policy);
+        bytes32 tid = instanceTemplateId[instanceId];
+        if (tid == bytes32(0)) revert EmptyTemplateId();
 
-        address[] storage policies = _instancePolicies[instanceId];
-
-        // First custom policy: copy template set as baseline
-        if (!hasCustomPolicies[instanceId]) {
-            bytes32 tid = instanceTemplateId[instanceId];
-            address[] storage tpl = _templatePolicies[tid];
-            for (uint256 i = 0; i < tpl.length; i++) {
-                policies.push(tpl[i]);
-            }
-            hasCustomPolicies[instanceId] = true;
-        }
-
-        if (policies.length >= MAX_POLICIES_PER_INSTANCE)
+        address[] storage tpl = _templatePolicies[tid];
+        address[] storage custom = _instancePolicies[instanceId];
+        if (tpl.length + custom.length >= MAX_POLICIES_PER_INSTANCE)
             revert TooManyPolicies();
-        // M-5 fix: prevent duplicate policies (avoids double-counting in onCommit)
-        for (uint256 i = 0; i < policies.length; i++) {
-            if (policies[i] == policy) revert DuplicatePolicy(policy);
+
+        // Prevent duplicates across template baseline + custom additions.
+        for (uint256 i = 0; i < tpl.length; i++) {
+            if (tpl[i] == policy) revert DuplicatePolicy(policy);
         }
-        policies.push(policy);
+        for (uint256 i = 0; i < custom.length; i++) {
+            if (custom[i] == policy) revert DuplicatePolicy(policy);
+        }
+
+        custom.push(policy);
+        hasCustomPolicies[instanceId] = true;
         emit InstancePolicyAdded(instanceId, policy);
     }
 
     /// @notice Remove a policy from an instance by index (only renterConfigurable ones)
     function removeInstancePolicy(uint256 instanceId, uint256 index) external {
         _checkRenterOrOwner(instanceId);
-        address[] storage policies = _instancePolicies[instanceId];
-        if (index >= policies.length) revert PolicyIndexOutOfBounds();
+        if (instanceTemplateId[instanceId] == bytes32(0)) revert EmptyTemplateId();
+        address[] storage custom = _instancePolicies[instanceId];
+        if (index >= custom.length) revert PolicyIndexOutOfBounds();
 
         // Cannot remove non-configurable policies (e.g. ReceiverGuard)
-        if (!IPolicy(policies[index]).renterConfigurable()) {
+        if (!IPolicy(custom[index]).renterConfigurable()) {
             revert CannotRemoveNonConfigurable();
         }
 
-        address removed = policies[index];
+        address removed = custom[index];
         // Swap-and-pop
-        policies[index] = policies[policies.length - 1];
-        policies.pop();
+        custom[index] = custom[custom.length - 1];
+        custom.pop();
+        if (custom.length == 0) hasCustomPolicies[instanceId] = false;
         emit InstancePolicyRemoved(instanceId, removed);
     }
 
@@ -250,14 +260,33 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
         address caller,
         Action calldata action
     ) external view override returns (bool ok, string memory reason) {
-        address[] storage policies = _getActivePolicies(tokenId);
+        bytes32 tid = instanceTemplateId[tokenId];
+        if (tid == bytes32(0)) {
+            return (false, "INSTANCE_NOT_BOUND");
+        }
+        address[] storage tpl = _templatePolicies[tid];
+        address[] storage custom = _instancePolicies[tokenId];
+        if (tpl.length == 0 && custom.length == 0) {
+            return (false, "NO_ACTIVE_POLICIES");
+        }
         // C-1 fix: safe selector extraction — empty data (pure value transfer) yields bytes4(0)
         bytes4 selector = action.data.length >= 4
             ? bytes4(action.data[:4])
             : bytes4(0);
 
-        for (uint256 i = 0; i < policies.length; i++) {
-            (bool pOk, string memory pReason) = IPolicy(policies[i]).check(
+        for (uint256 i = 0; i < tpl.length; i++) {
+            (bool pOk, string memory pReason) = IPolicy(tpl[i]).check(
+                tokenId,
+                caller,
+                action.target,
+                selector,
+                action.data,
+                action.value
+            );
+            if (!pOk) return (false, pReason);
+        }
+        for (uint256 i = 0; i < custom.length; i++) {
+            (bool pOk, string memory pReason) = IPolicy(custom[i]).check(
                 tokenId,
                 caller,
                 action.target,
@@ -279,12 +308,56 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
     function commit(uint256 tokenId, Action calldata action) external override {
         if (msg.sender != agentNFA) revert OnlyAgentNFA();
 
-        address[] storage policies = _getActivePolicies(tokenId);
+        bytes32 tid = instanceTemplateId[tokenId];
+        address[] storage tpl = _templatePolicies[tid];
+        address[] storage custom = _instancePolicies[tokenId];
         // C-1 fix: safe selector extraction
         bytes4 selector = action.data.length >= 4
             ? bytes4(action.data[:4])
             : bytes4(0);
 
+        _commitPolicies(tokenId, tpl, action, selector);
+        _commitPolicies(tokenId, custom, action, selector);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //                       VIEWS
+    // ═══════════════════════════════════════════════════════
+
+    /// @notice Get the active policy set for an instance
+    function getActivePolicies(
+        uint256 instanceId
+    ) external view returns (address[] memory) {
+        bytes32 tid = instanceTemplateId[instanceId];
+        address[] storage tpl = _templatePolicies[tid];
+        address[] storage custom = _instancePolicies[instanceId];
+        address[] memory result = new address[](tpl.length + custom.length);
+        for (uint256 i = 0; i < tpl.length; i++) {
+            result[i] = tpl[i];
+        }
+        for (uint256 i = 0; i < custom.length; i++) {
+            result[tpl.length + i] = custom[i];
+        }
+        return result;
+    }
+
+    /// @notice Get the template policy set
+    function getTemplatePolicies(
+        bytes32 templateId
+    ) external view returns (address[] memory) {
+        return _templatePolicies[templateId];
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //                     INTERNALS
+    // ═══════════════════════════════════════════════════════
+
+    function _commitPolicies(
+        uint256 tokenId,
+        address[] storage policies,
+        Action calldata action,
+        bytes4 selector
+    ) internal {
         for (uint256 i = 0; i < policies.length; i++) {
             // H-1 fix: each onCommit() wrapped in its own try-catch so one
             // failure does not skip subsequent committable policies
@@ -313,48 +386,20 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
         }
     }
 
-    // ═══════════════════════════════════════════════════════
-    //                       VIEWS
-    // ═══════════════════════════════════════════════════════
-
-    /// @notice Get the active policy set for an instance
-    function getActivePolicies(
-        uint256 instanceId
-    ) external view returns (address[] memory) {
-        address[] storage policies = _getActivePolicies(instanceId);
-        address[] memory result = new address[](policies.length);
-        for (uint256 i = 0; i < policies.length; i++) {
-            result[i] = policies[i];
-        }
-        return result;
-    }
-
-    /// @notice Get the template policy set
-    function getTemplatePolicies(
-        bytes32 templateId
-    ) external view returns (address[] memory) {
-        return _templatePolicies[templateId];
-    }
-
-    // ═══════════════════════════════════════════════════════
-    //                     INTERNALS
-    // ═══════════════════════════════════════════════════════
-
-    /// @dev Resolve the active policy array for a given instance
-    function _getActivePolicies(
-        uint256 instanceId
-    ) internal view returns (address[] storage) {
-        if (hasCustomPolicies[instanceId]) {
-            return _instancePolicies[instanceId];
-        }
-        bytes32 tid = instanceTemplateId[instanceId];
-        return _templatePolicies[tid];
-    }
-
-    /// @dev Check that msg.sender is the renter (userOf) or contract owner
+    /// @dev Check that msg.sender is contract owner, instance owner, or renter (userOf)
     function _checkRenterOrOwner(uint256 instanceId) internal view {
         if (msg.sender == owner()) return;
         address renter = IERC4907(agentNFA).userOf(instanceId);
-        if (msg.sender != renter) revert NotRenterOrOwner();
+        if (msg.sender == renter) return;
+        if (agentNFA.code.length > 0) {
+            (bool ownerOk, bytes memory ownerData) = agentNFA.staticcall(
+                abi.encodeWithSelector(IERC721.ownerOf.selector, instanceId)
+            );
+            if (ownerOk && ownerData.length >= 32) {
+                address tokenOwner = abi.decode(ownerData, (address));
+                if (msg.sender == tokenOwner) return;
+            }
+        }
+        revert NotRenterOrOwner();
     }
 }

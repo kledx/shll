@@ -5,13 +5,12 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/security/Reentra
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IAgentAccount} from "./interfaces/IAgentAccount.sol";
-import {IAgentNFA} from "./interfaces/IAgentNFA.sol";
 import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {Errors} from "./libs/Errors.sol";
 
 /// @title AgentAccount — Isolated vault for each AI Agent NFA
 /// @notice Each NFA token has one AgentAccount that holds its funds
-/// @dev Renter deposits funds, executes DeFi via NFA, and withdraws results
+/// @dev Renter deposits funds and executes DeFi via NFA; only owner can withdraw vault assets
 contract AgentAccount is IAgentAccount, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -85,20 +84,10 @@ contract AgentAccount is IAgentAccount, ReentrancyGuard {
     //                    INTERNAL
     // ═══════════════════════════════════════════════════════════
 
-    /// @dev Check that msg.sender is owner or renter
-    ///      and `to` is their own address (no arbitrary withdrawal)
+    /// @dev Check that msg.sender is owner and recipient is owner
     function _checkWithdrawPermission(address to) internal view {
         address owner = IERC721(nfa).ownerOf(tokenId);
-        address renter = IAgentNFA(nfa).userOf(tokenId);
-
-        if (msg.sender == owner) {
-            // Owner can withdraw to themselves
-            if (to != owner) revert Errors.InvalidWithdrawRecipient();
-        } else if (msg.sender == renter && renter != address(0)) {
-            // Renter can withdraw to themselves
-            if (to != renter) revert Errors.InvalidWithdrawRecipient();
-        } else {
-            revert Errors.Unauthorized();
-        }
+        if (msg.sender != owner) revert Errors.Unauthorized();
+        if (to != owner) revert Errors.InvalidWithdrawRecipient();
     }
 }

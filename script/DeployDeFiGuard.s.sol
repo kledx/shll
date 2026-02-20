@@ -28,8 +28,7 @@ contract DeployDeFiGuard is Script {
     bytes4 constant DEPOSIT = 0xd0e30db0; // WBNB.deposit()
     bytes4 constant WITHDRAW = 0x2e1a7d4d; // WBNB.withdraw(uint256)
 
-    // Template keys (must match SetupV30Templates)
-    bytes32 constant TEMPLATE_DCA = keccak256("dca_v3");
+    // Template key (must match deployment setup)
     bytes32 constant TEMPLATE_LLM = keccak256("llm_trader_v3");
 
     function run() external {
@@ -86,9 +85,8 @@ contract DeployDeFiGuard is Script {
         //  STEP 5: Attach to templates
         // ═══════════════════════════════════════════════════════
 
-        guard.addTemplatePolicy(TEMPLATE_DCA, address(defiGuard));
         guard.addTemplatePolicy(TEMPLATE_LLM, address(defiGuard));
-        console.log("DeFiGuardPolicy attached to DCA and LLM templates");
+        console.log("DeFiGuardPolicy attached to LLM template");
 
         // ═══════════════════════════════════════════════════════
         //  STEP 6: Bind to existing Token #2 (has no template)
@@ -113,7 +111,7 @@ contract DeployDeFiGuard is Script {
         console.log(
             "  Selectors    : 9 (swap variants + approve + transfer + deposit + withdraw)"
         );
-        console.log("  Templates    : DCA + LLM Trader");
+        console.log("  Templates    : LLM Trader");
         console.log("  Instance #2  : bound");
         console.log("");
         console.log("Add to .env:");

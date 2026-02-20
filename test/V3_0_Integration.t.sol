@@ -72,7 +72,7 @@ contract V3_0_IntegrationTest is Test {
         guardV4.approvePolicyContract(address(receiverGuard));
         guardV4.approvePolicyContract(address(dexWL));
 
-        // 6. Mint template agent with TYPE_DCA
+        // 6. Mint template agent with TYPE_LLM_TRADER
         IBAP578.AgentMetadata memory meta = IBAP578.AgentMetadata({
             persona: '{"role":"trader"}',
             experience: "V3.0 test agent",
@@ -84,7 +84,7 @@ contract V3_0_IntegrationTest is Test {
         templateId = nfa.mintAgent(
             owner,
             bytes32(0),
-            nfa.TYPE_DCA(),
+            nfa.TYPE_LLM_TRADER(),
             "ipfs://v3-test",
             meta
         );
@@ -111,6 +111,8 @@ contract V3_0_IntegrationTest is Test {
             500 ether,
             500
         );
+        spendingLimit.setTemplateApproveCeiling(templateKey, 100 ether);
+        spendingLimit.setApprovedSpender(ROUTER, true);
         // Bind templateId instance to templateKey (M-2: ceiling lookup needs this)
         vm.prank(address(guardV4));
         spendingLimit.bindInstanceTemplate(templateId, templateKey);
@@ -126,13 +128,11 @@ contract V3_0_IntegrationTest is Test {
     // ═══════════════════════════════════════════════════════════
 
     function test_v3_agentType_set_on_mint() public view {
-        assertEq(nfa.agentType(templateId), nfa.TYPE_DCA());
+        assertEq(nfa.agentType(templateId), nfa.TYPE_LLM_TRADER());
     }
 
     function test_v3_agentType_constants() public view {
-        assertTrue(nfa.TYPE_DCA() != bytes32(0));
         assertTrue(nfa.TYPE_LLM_TRADER() != bytes32(0));
-        assertTrue(nfa.TYPE_DCA() != nfa.TYPE_LLM_TRADER());
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -187,6 +187,117 @@ contract V3_0_IntegrationTest is Test {
         assertEq(policies.length, 2);
         // After swap-and-pop, first element should be receiverGuard (was last)
         assertEq(policies[0], address(receiverGuard));
+    }
+
+    function test_v3_renter_cannot_remove_template_baseline_via_custom_mode()
+        public
+    {
+        uint256 instanceId = _mintBoundInstance(renter);
+
+        vm.prank(renter);
+        guardV4.addInstancePolicy(instanceId, address(dexWL));
+        address[] memory activeAfterAdd = guardV4.getActivePolicies(instanceId);
+        assertEq(activeAfterAdd.length, 4); // 3 template + 1 custom
+        assertTrue(guardV4.hasCustomPolicies(instanceId));
+
+        vm.prank(renter);
+        guardV4.removeInstancePolicy(instanceId, 0);
+        address[] memory activeAfterRemove = guardV4.getActivePolicies(instanceId);
+        assertEq(activeAfterRemove.length, 3); // template baseline still active
+        assertFalse(guardV4.hasCustomPolicies(instanceId));
+
+        vm.prank(renter);
+        vm.expectRevert(PolicyGuardV4.PolicyIndexOutOfBounds.selector);
+        guardV4.removeInstancePolicy(instanceId, 0);
+    }
+
+    function test_v3_template_policies_enforced_after_custom_removed() public {
+        uint256 instanceId = _mintBoundInstance(renter);
+
+        vm.prank(renter);
+        guardV4.addInstancePolicy(instanceId, address(dexWL));
+        vm.prank(renter);
+        guardV4.removeInstancePolicy(instanceId, 0);
+
+        bytes4 selector = PolicyKeys.SWAP_EXACT_TOKENS;
+        address[] memory blockedPath = new address[](2);
+        blockedPath[0] = USDT;
+        blockedPath[1] = address(0xDEAD);
+        bytes memory blockedData = abi.encodeWithSelector(
+            selector,
+            10 ether,
+            9 ether,
+            blockedPath,
+            owner,
+            block.timestamp + 600
+        );
+        Action memory action = Action({
+            target: ROUTER,
+            value: 0,
+            data: blockedData
+        });
+
+        (bool ok, string memory reason) = guardV4.validate(
+            address(nfa),
+            instanceId,
+            nfa.accountOf(instanceId),
+            renter,
+            action
+        );
+        assertFalse(ok);
+        assertEq(reason, "Token not in whitelist");
+    }
+
+    function test_v3_bindInstance_reverts_on_empty_template_id() public {
+        nfa.setListingManager(address(this));
+        uint256 instanceId = nfa.mintInstanceFromTemplate(
+            renter,
+            templateId,
+            uint64(block.timestamp + 1 days),
+            ""
+        );
+
+        vm.expectRevert(PolicyGuardV4.EmptyTemplateId.selector);
+        guardV4.bindInstance(instanceId, bytes32(0));
+    }
+
+    function test_v3_bindInstance_reverts_on_empty_template_policies() public {
+        nfa.setListingManager(address(this));
+        uint256 instanceId = nfa.mintInstanceFromTemplate(
+            renter,
+            templateId,
+            uint64(block.timestamp + 1 days),
+            ""
+        );
+        bytes32 emptyTemplateKey = bytes32("empty-template");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PolicyGuardV4.EmptyTemplatePolicies.selector,
+                emptyTemplateKey
+            )
+        );
+        guardV4.bindInstance(instanceId, emptyTemplateKey);
+    }
+
+    function test_v3_validate_rejects_unbound_instance() public {
+        nfa.setListingManager(address(this));
+        uint256 instanceId = nfa.mintInstanceFromTemplate(
+            renter,
+            templateId,
+            uint64(block.timestamp + 1 days),
+            ""
+        );
+        Action memory action = Action({target: ROUTER, value: 0, data: ""});
+
+        (bool ok, string memory reason) = guardV4.validate(
+            address(nfa),
+            instanceId,
+            nfa.accountOf(instanceId),
+            renter,
+            action
+        );
+        assertFalse(ok);
+        assertEq(reason, "INSTANCE_NOT_BOUND");
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -308,6 +419,93 @@ contract V3_0_IntegrationTest is Test {
         );
         assertFalse(ok);
         assertEq(reason, "Exceeds per-tx limit");
+    }
+
+    function test_v3_spendingLimit_blocks_direct_erc20_transfer() public {
+        uint256 instanceId = _mintBoundInstance(renter);
+        bytes memory transferData = abi.encodeWithSelector(
+            bytes4(0xa9059cbb),
+            renter,
+            1 ether
+        );
+
+        (bool ok, string memory reason) = spendingLimit.check(
+            instanceId,
+            owner,
+            USDT,
+            bytes4(0xa9059cbb),
+            transferData,
+            0
+        );
+        assertFalse(ok);
+        assertEq(reason, "Direct ERC20 transfer blocked");
+    }
+
+    function test_v3_spendingLimit_approve_guardrails() public {
+        uint256 instanceId = _mintBoundInstance(renter);
+
+        bytes memory okApprove = abi.encodeWithSelector(
+            bytes4(0x095ea7b3),
+            ROUTER,
+            50 ether
+        );
+        (bool ok1, ) = spendingLimit.check(
+            instanceId,
+            owner,
+            USDT,
+            bytes4(0x095ea7b3),
+            okApprove,
+            0
+        );
+        assertTrue(ok1);
+
+        bytes memory tooLargeApprove = abi.encodeWithSelector(
+            bytes4(0x095ea7b3),
+            ROUTER,
+            101 ether
+        );
+        (bool ok2, string memory reason2) = spendingLimit.check(
+            instanceId,
+            owner,
+            USDT,
+            bytes4(0x095ea7b3),
+            tooLargeApprove,
+            0
+        );
+        assertFalse(ok2);
+        assertEq(reason2, "Approve exceeds limit");
+
+        bytes memory badSpenderApprove = abi.encodeWithSelector(
+            bytes4(0x095ea7b3),
+            address(0xBAD),
+            1 ether
+        );
+        (bool ok3, string memory reason3) = spendingLimit.check(
+            instanceId,
+            owner,
+            USDT,
+            bytes4(0x095ea7b3),
+            badSpenderApprove,
+            0
+        );
+        assertFalse(ok3);
+        assertEq(reason3, "Approve spender not allowed");
+
+        bytes memory infiniteApprove = abi.encodeWithSelector(
+            bytes4(0x095ea7b3),
+            ROUTER,
+            type(uint256).max
+        );
+        (bool ok4, string memory reason4) = spendingLimit.check(
+            instanceId,
+            owner,
+            USDT,
+            bytes4(0x095ea7b3),
+            infiniteApprove,
+            0
+        );
+        assertFalse(ok4);
+        assertEq(reason4, "Infinite approval not allowed");
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -512,6 +710,114 @@ contract V3_0_IntegrationTest is Test {
         bytes4 committableId = type(ICommittable).interfaceId;
         assertTrue(spendingLimit.supportsInterface(committableId));
         assertTrue(cooldownPolicy.supportsInterface(committableId));
+    }
+
+    function test_v3_tokenWhitelist_inherits_template_config_for_instance() public {
+        uint256 instanceId = _mintBoundInstance(renter);
+
+        bytes4 selector = PolicyKeys.SWAP_EXACT_TOKENS;
+        address[] memory allowedPath = new address[](2);
+        allowedPath[0] = USDT;
+        allowedPath[1] = WBNB;
+        bytes memory allowedData = abi.encodeWithSelector(
+            selector,
+            10 ether,
+            9 ether,
+            allowedPath,
+            owner,
+            block.timestamp + 600
+        );
+
+        (bool okAllowed, ) = tokenWL.check(
+            instanceId,
+            owner,
+            ROUTER,
+            selector,
+            allowedData,
+            0
+        );
+        assertTrue(okAllowed);
+
+        address[] memory blockedPath = new address[](2);
+        blockedPath[0] = USDT;
+        blockedPath[1] = address(0xDEAD);
+        bytes memory blockedData = abi.encodeWithSelector(
+            selector,
+            10 ether,
+            9 ether,
+            blockedPath,
+            owner,
+            block.timestamp + 600
+        );
+
+        (bool okBlocked, string memory reason) = tokenWL.check(
+            instanceId,
+            owner,
+            ROUTER,
+            selector,
+            blockedData,
+            0
+        );
+        assertFalse(okBlocked);
+        assertEq(reason, "Token not in whitelist");
+    }
+
+    function test_v3_dexWhitelist_inherits_template_config_for_instance() public {
+        dexWL.addDex(templateId, ROUTER);
+        uint256 instanceId = _mintBoundInstance(renter);
+
+        (bool okAllowed, ) = dexWL.check(
+            instanceId,
+            owner,
+            ROUTER,
+            bytes4(0),
+            "",
+            0
+        );
+        assertTrue(okAllowed);
+
+        (bool okBlocked, string memory reason) = dexWL.check(
+            instanceId,
+            owner,
+            address(0xBAD),
+            bytes4(0),
+            "",
+            0
+        );
+        assertFalse(okBlocked);
+        assertEq(reason, "DEX not whitelisted");
+    }
+
+    function test_v3_cooldown_inherits_template_config_for_instance() public {
+        cooldownPolicy.setCooldown(templateId, 60);
+        uint256 instanceId = _mintBoundInstance(renter);
+
+        vm.warp(1000);
+        vm.prank(address(guardV4));
+        cooldownPolicy.onCommit(instanceId, ROUTER, bytes4(0), "", 0);
+
+        vm.warp(1030);
+        (bool ok, string memory reason) = cooldownPolicy.check(
+            instanceId,
+            owner,
+            ROUTER,
+            bytes4(0),
+            "",
+            0
+        );
+        assertFalse(ok);
+        assertEq(reason, "Cooldown active");
+    }
+
+    function _mintBoundInstance(address to) internal returns (uint256 instanceId) {
+        nfa.setListingManager(address(this));
+        instanceId = nfa.mintInstanceFromTemplate(
+            to,
+            templateId,
+            uint64(block.timestamp + 1 days),
+            ""
+        );
+        guardV4.bindInstance(instanceId, templateKey);
     }
 
     // Allow this contract to receive ERC721

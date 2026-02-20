@@ -14,7 +14,7 @@ import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
 
 /// @title DeployV30Full — Production-grade V3.0 Full Deployment
-/// @notice Deploys 9 contracts + DCA template in 2 phases:
+/// @notice Deploys 9 contracts + LLM template in 2 phases:
 ///   Phase 1: Deploy all contracts + wire + approve (9 CREATE + 10 CALL = 19 txns)
 ///   Phase 2: Template setup — mint, register, policies, whitelist, list (14 txns)
 ///   Total: 33 transactions, 10 contracts on-chain (including auto-created AgentAccount)
@@ -34,7 +34,7 @@ import {IBAP578} from "../src/interfaces/IBAP578.sol";
 ///   USDT_ADDRESS       — USDT token address
 ///   WBNB_ADDRESS       — WBNB token address
 contract DeployV30Full is Script {
-    bytes32 constant TEMPLATE_DCA = keccak256("dca_v3");
+    bytes32 constant TEMPLATE_LLM = keccak256("llm_trader_v3");
 
     // Deployed contract references (set during Phase 1)
     PolicyGuardV4 guardV4;
@@ -91,7 +91,7 @@ contract DeployV30Full is Script {
         //  setTemplateCeiling, 2x addToken, addDex, setCooldown, approve, createTemplateListing
         // ══════════════════════════════════════════════════════════
 
-        console.log("[PHASE 2] Setting up DCA template...");
+        console.log("[PHASE 2] Setting up LLM template...");
         console.log("");
 
         vm.startBroadcast();
@@ -123,10 +123,10 @@ contract DeployV30Full is Script {
         console.log("ReceiverGuardPolicy :", address(receiverGuard));
         console.log("DexWhitelistPolicy  :", address(dexWL));
         console.log("");
-        console.log("--- DCA Template ---");
+        console.log("--- LLM Template ---");
         console.log("Template tokenId    : 0");
         console.log("Template key        :");
-        console.logBytes32(TEMPLATE_DCA);
+        console.logBytes32(TEMPLATE_LLM);
         console.log("Ceiling             : 10 BNB/tx, 50 BNB/day, 500 bps");
         console.log("Token whitelist     : USDT, WBNB");
         console.log("DEX whitelist       : Router");
@@ -286,14 +286,18 @@ contract DeployV30Full is Script {
     // ══════════════════════════════════════════════════════════════
 
     function _phase2_template(
-        address deployer,
+        address,
         address router,
         address usdt,
         address wbnb
     ) internal {
-        // --- Step 1: Mint DCA Template Agent ---
+        // In tests and script execution, msg.sender before/after broadcast can differ.
+        // Use on-chain NFA owner to ensure template mint + follow-up owner-only ops are consistent.
+        address deployer = nfa.owner();
+
+        // --- Step 1: Mint LLM Template Agent ---
         IBAP578.AgentMetadata memory meta = IBAP578.AgentMetadata({
-            persona: '{"name":"DCA Strategy Agent","description":"Automated dollar-cost averaging into selected tokens"}',
+            persona: '{"name":"LLM Trader Agent","description":"AI-powered autonomous trading agent driven by LLM reasoning"}',
             experience: "Template",
             voiceHash: "",
             animationURI: "",
@@ -301,50 +305,50 @@ contract DeployV30Full is Script {
             vaultHash: bytes32(0)
         });
 
-        uint256 dcaTokenId = nfa.mintAgent(
+        uint256 llmTokenId = nfa.mintAgent(
             deployer,
             bytes32(uint256(1)), // legacy policyId
-            nfa.TYPE_DCA(), // V3.0 agentType
+            nfa.TYPE_LLM_TRADER(), // unified agentType
             "https://api.shll.run/api/metadata/0",
             meta
         );
-        console.log("  [mint]     DCA Template tokenId:", dcaTokenId);
+        console.log("  [mint]     LLM Template tokenId:", llmTokenId);
 
         // --- Step 2: Register as template ---
-        nfa.registerTemplate(dcaTokenId, TEMPLATE_DCA);
-        console.log("  [register] Template key dca_v3");
+        nfa.registerTemplate(llmTokenId, TEMPLATE_LLM);
+        console.log("  [register] Template key llm_trader_v3");
 
         // --- Step 3: Attach 5 policies to template ---
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(receiverGuard));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(spendingLimit));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(tokenWL));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(dexWL));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(cooldown));
-        console.log("  [policies] 5 policies attached to DCA template");
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(receiverGuard));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(spendingLimit));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(tokenWL));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(dexWL));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM, address(cooldown));
+        console.log("  [policies] 5 policies attached to LLM template");
 
         // --- Step 4: Configure ceilings ---
         // 10 BNB per tx, 50 BNB per day, 500 bps (5%) max slippage
-        spendingLimit.setTemplateCeiling(TEMPLATE_DCA, 10 ether, 50 ether, 500);
+        spendingLimit.setTemplateCeiling(TEMPLATE_LLM, 10 ether, 50 ether, 500);
         console.log("  [ceiling]  10 BNB/tx, 50 BNB/day, 5% slippage");
 
         // --- Step 5: Token whitelist ---
-        tokenWL.addToken(dcaTokenId, usdt);
-        tokenWL.addToken(dcaTokenId, wbnb);
+        tokenWL.addToken(llmTokenId, usdt);
+        tokenWL.addToken(llmTokenId, wbnb);
         console.log("  [whitelist] Tokens: USDT, WBNB");
 
         // --- Step 6: DEX whitelist ---
-        dexWL.addDex(dcaTokenId, router);
+        dexWL.addDex(llmTokenId, router);
         console.log("  [whitelist] DEX: PancakeSwap Router");
 
         // --- Step 7: Cooldown ---
-        cooldown.setCooldown(dcaTokenId, 60);
+        cooldown.setCooldown(llmTokenId, 60);
         console.log("  [cooldown] 60 seconds");
 
         // --- Step 8: Approve + List on marketplace ---
-        nfa.approve(address(lm), dcaTokenId);
+        nfa.approve(address(lm), llmTokenId);
         bytes32 listingId = lm.createTemplateListing(
             address(nfa),
-            dcaTokenId,
+            llmTokenId,
             uint96(0.005 ether), // 0.005 BNB per day
             1 // min 1 day
         );

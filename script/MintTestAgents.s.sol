@@ -34,23 +34,21 @@ contract MintTestAgents is Script {
         uint256 tokenId1 = agentNFA.mintAgent(
             deployer,
             bytes32(uint256(1)), // policyId 1
-            bytes32(0), // agentType (V3.0)
+            agentNFA.TYPE_LLM_TRADER(),
             "https://api.shll.run/api/metadata/1",
             meta1
         );
         console.log("Minted Agent 1:", tokenId1);
 
-        // Approve ListingManager
-        agentNFA.approve(address(listingManager), tokenId1);
-
-        // List Agent 1
-        listingManager.createListing(
+        // Register as template and list via template flow
+        agentNFA.registerTemplate(tokenId1, bytes32("mint-test-template-1"));
+        listingManager.createTemplateListing(
             address(agentNFA),
             tokenId1,
             uint96(0.01 ether), // 0.01 BNB per day
             1 // Min duration
         );
-        console.log("Listed Agent 1");
+        console.log("Template-listed Agent 1");
 
         // 2. Mint Agent 2: "Yield Farmer"
         IBAP578.AgentMetadata memory meta2 = IBAP578.AgentMetadata({
@@ -65,20 +63,20 @@ contract MintTestAgents is Script {
         uint256 tokenId2 = agentNFA.mintAgent(
             deployer,
             bytes32(uint256(1)),
-            bytes32(0), // agentType (V3.0)
+            agentNFA.TYPE_LLM_TRADER(),
             "https://api.shll.run/api/metadata/2",
             meta2
         );
         console.log("Minted Agent 2:", tokenId2);
 
-        agentNFA.approve(address(listingManager), tokenId2);
-        listingManager.createListing(
+        agentNFA.registerTemplate(tokenId2, bytes32("mint-test-template-2"));
+        listingManager.createTemplateListing(
             address(agentNFA),
             tokenId2,
             uint96(0.005 ether),
             1 // Min duration
         );
-        console.log("Listed Agent 2");
+        console.log("Template-listed Agent 2");
 
         vm.stopBroadcast();
     }

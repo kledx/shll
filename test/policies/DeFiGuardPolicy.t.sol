@@ -104,8 +104,8 @@ contract DeFiGuardPolicyTest is Test {
         vm.prank(OWNER);
         policy.removeGlobalTarget(PANCAKE_ROUTER);
 
-        // After removing all targets, whitelist is empty → allow all (by design)
-        (bool ok, ) = policy.check(
+        // After removing all targets, whitelist is unconfigured -> fail-close
+        (bool ok, string memory reason) = policy.check(
             INSTANCE_ID,
             CALLER,
             PANCAKE_ROUTER,
@@ -113,7 +113,8 @@ contract DeFiGuardPolicyTest is Test {
             "",
             1 ether
         );
-        assertTrue(ok, "Empty whitelist should allow all");
+        assertFalse(ok, "Empty whitelist should reject");
+        assertEq(reason, "Target whitelist not configured");
     }
 
     function test_removeGlobalTarget_nonWhitelisted_rejected() public view {
@@ -246,9 +247,8 @@ contract DeFiGuardPolicyTest is Test {
         assertEq(reason, "Function not allowed");
     }
 
-    function test_zeroSelector_pureTransfer_allowed() public view {
-        // bytes4(0) = pure value transfer (no calldata)
-        (bool ok, ) = policy.check(
+    function test_zeroSelector_rejected_unless_explicitly_whitelisted() public view {
+        (bool ok, string memory reason) = policy.check(
             INSTANCE_ID,
             CALLER,
             PANCAKE_ROUTER,
@@ -256,7 +256,8 @@ contract DeFiGuardPolicyTest is Test {
             "",
             1 ether
         );
-        assertTrue(ok, "Pure value transfer should be allowed");
+        assertFalse(ok, "Zero selector should be rejected by default");
+        assertEq(reason, "Function not allowed");
     }
 
     function test_ownerCanAddSelector() public {
@@ -291,8 +292,8 @@ contract DeFiGuardPolicyTest is Test {
         assertEq(reason, "Function not allowed");
     }
 
-    function test_noSelectors_allowsAll() public {
-        // Remove all selectors — should allow any function
+    function test_noSelectors_rejectsAll() public {
+        // Remove all selectors — should reject any function
         vm.startPrank(OWNER);
         policy.removeSelector(SWAP_EXACT_ETH);
         policy.removeSelector(SWAP_EXACT_TOKENS);
@@ -300,7 +301,7 @@ contract DeFiGuardPolicyTest is Test {
         policy.removeSelector(TRANSFER);
         vm.stopPrank();
 
-        (bool ok, ) = policy.check(
+        (bool ok, string memory reason) = policy.check(
             INSTANCE_ID,
             CALLER,
             PANCAKE_ROUTER,
@@ -308,7 +309,8 @@ contract DeFiGuardPolicyTest is Test {
             "",
             0
         );
-        assertTrue(ok, "No selectors configured should allow all");
+        assertFalse(ok, "No selectors configured should reject all");
+        assertEq(reason, "Selector whitelist not configured");
     }
 
     function test_getAllowedSelectors_returnsAll() public view {
@@ -408,29 +410,22 @@ contract DeFiGuardPolicyTest is Test {
     //              Empty Config Tests
     // ═══════════════════════════════════════════════════════
 
-    function test_noWhitelists_allowsAll() public {
-        // Remove global whitelist
+    function test_noWhitelists_rejectsAll() public {
+        // Remove global whitelist (instance whitelist is empty by default)
         vm.prank(OWNER);
         policy.removeGlobalTarget(PANCAKE_ROUTER);
 
-        // Also remove all selectors to skip selector check
-        vm.startPrank(OWNER);
-        policy.removeSelector(SWAP_EXACT_ETH);
-        policy.removeSelector(SWAP_EXACT_TOKENS);
-        policy.removeSelector(APPROVE);
-        policy.removeSelector(TRANSFER);
-        vm.stopPrank();
-
-        // No whitelist at all — allow everything
-        (bool ok, ) = policy.check(
+        // Selectors remain configured, so failure reason should come from whitelist layer
+        (bool ok, string memory reason) = policy.check(
             INSTANCE_ID,
             CALLER,
             BISWAP_ROUTER,
-            UNKNOWN_SELECTOR,
+            SWAP_EXACT_TOKENS,
             "",
             0
         );
-        assertTrue(ok, "No whitelists should allow all targets");
+        assertFalse(ok, "No whitelists configured should reject all targets");
+        assertEq(reason, "Target whitelist not configured");
     }
 
     // ═══════════════════════════════════════════════════════

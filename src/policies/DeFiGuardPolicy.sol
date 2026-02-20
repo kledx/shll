@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {IERC4907} from "../interfaces/IERC4907.sol";
 
@@ -214,23 +215,21 @@ contract DeFiGuardPolicy is IPolicy {
         }
 
         // Layer 2: Selector validation
-        // SECURITY WARNING (H-2): Fail-open — no selectors configured = all functions allowed.
-        // Deployer MUST configure allowed selectors.
-        if (_allowedSelectorsList.length > 0) {
-            // bytes4(0) = pure value transfer (no calldata), always allowed
-            if (selector != bytes4(0) && !allowedSelectors[selector]) {
-                return (false, "Function not allowed");
-            }
+        // Fail-close: unconfigured selector allowlist blocks all calls.
+        if (_allowedSelectorsList.length == 0) {
+            return (false, "Selector whitelist not configured");
+        }
+        if (!allowedSelectors[selector]) {
+            return (false, "Function not allowed");
         }
 
         // Layer 3: Whitelist — global OR per-instance
-        // SECURITY WARNING (H-2): Fail-open — no whitelists = all targets allowed.
-        // Deployer MUST configure at least global whitelist.
+        // Fail-close: unconfigured target whitelist blocks all calls.
         if (
             _globalAllowedList.length == 0 &&
             _instanceAllowedList[instanceId].length == 0
         ) {
-            return (true, "");
+            return (false, "Target whitelist not configured");
         }
 
         // Check global whitelist
@@ -263,10 +262,19 @@ contract DeFiGuardPolicy is IPolicy {
     }
 
     function _checkRenterOrOwner(uint256 instanceId) internal view {
+        if (msg.sender == Ownable(guard).owner()) return;
         address renter = IERC4907(agentNFA).userOf(instanceId);
-        if (msg.sender != renter && msg.sender != Ownable(guard).owner()) {
-            revert NotRenterOrOwner();
+        if (msg.sender == renter) return;
+        if (agentNFA.code.length > 0) {
+            (bool ownerOk, bytes memory ownerData) = agentNFA.staticcall(
+                abi.encodeWithSelector(IERC721.ownerOf.selector, instanceId)
+            );
+            if (ownerOk && ownerData.length >= 32) {
+                address tokenOwner = abi.decode(ownerData, (address));
+                if (msg.sender == tokenOwner) return;
+            }
         }
+        revert NotRenterOrOwner();
     }
 
     function _removeFromArray(address[] storage list, address item) internal {

@@ -8,6 +8,7 @@ import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {Action} from "../src/types/Action.sol";
 import {Errors} from "../src/libs/Errors.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
+import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 
 contract MockTarget {
     function ping() external pure returns (uint256) {
@@ -19,6 +20,7 @@ contract OperatorPermitTest is Test {
     AgentNFA internal nfa;
     PolicyGuardV4 internal guard;
     MockTarget internal target;
+    DexWhitelistPolicy internal dexWL;
 
     uint256 internal tokenId;
     address internal account;
@@ -36,6 +38,7 @@ contract OperatorPermitTest is Test {
         keccak256(
             "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
         );
+    bytes32 internal constant TEMPLATE_KEY = bytes32("operator-template");
 
     function setUp() public {
         renter = vm.addr(renterPk);
@@ -43,6 +46,7 @@ contract OperatorPermitTest is Test {
         guard = new PolicyGuardV4();
         nfa = new AgentNFA(address(guard));
         target = new MockTarget();
+        dexWL = new DexWhitelistPolicy(address(guard), address(nfa));
 
         tokenId = nfa.mintAgent(
             address(0xABCD),
@@ -53,6 +57,12 @@ contract OperatorPermitTest is Test {
             _emptyMetadata()
         );
         account = nfa.accountOf(tokenId);
+
+        // Bind standalone token to a non-empty template policy set so renter/operator
+        // execution follows PolicyGuard fail-close semantics.
+        guard.approvePolicyContract(address(dexWL));
+        guard.addTemplatePolicy(TEMPLATE_KEY, address(dexWL));
+        guard.bindInstance(tokenId, TEMPLATE_KEY);
     }
 
     function test_setOperatorWithSig_success() public {

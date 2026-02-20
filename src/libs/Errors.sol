@@ -50,17 +50,12 @@ library Errors {
     error ListingAlreadyExists();
     error InsufficientPayment(uint256 required, uint256 sent);
     error MinDaysNotMet(uint32 requested, uint32 minimum);
-    error AlreadyRented();
     error NotListingOwner();
-    error CooldownNotMet(uint256 availableAt, uint256 currentTime);
     error RentingPaused();
-    error GracePeriodActive(address lastRenter, uint256 graceEndsAt);
     error MaxDaysExceeded(uint32 requested, uint32 maximum);
-    error IsTemplateListing();
 
     // --- V1.3: Template / Instance ---
     error NotTemplate(uint256 tokenId);
     error AlreadyTemplate(uint256 tokenId);
-    error TemplateListingRequired();
     error InvalidInitParams();
 }

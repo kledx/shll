@@ -14,24 +14,24 @@ import {IBAP578} from "../src/interfaces/IBAP578.sol";
 
 // V3.1: Use AgentNFA directly (5-param mintAgent with agentType)
 
-/// @title SetupV30Templates — Configure V3.0 templates, ceilings, and whitelists
+/// @title SetupV30Templates 鈥?Configure V3.0 templates, ceilings, and whitelists
 /// @notice Run AFTER DeployV30.s.sol. Creates template agents with full policy config.
 /// @dev Usage:
 ///   forge script script/SetupV30Templates.s.sol --rpc-url $RPC_URL --broadcast --gas-price 5000000000 -vvv
 ///
 /// Required env vars (all from DeployV30 output):
-///   PRIVATE_KEY        — deployer private key
-///   AGENT_NFA          — AgentNFA contract
-///   POLICY_GUARD_V4    — PolicyGuardV4 contract
-///   TOKEN_WL           — TokenWhitelistPolicy contract
-///   SPENDING_LIMIT     — SpendingLimitPolicy contract
-///   COOLDOWN           — CooldownPolicy contract
-///   RECEIVER_GUARD     — ReceiverGuardPolicy contract
-///   DEX_WL             — DexWhitelistPolicy contract
-///   LISTING_MANAGER    — ListingManager contract
-///   ROUTER_ADDRESS     — PancakeSwap V2 Router
-///   USDT_ADDRESS       — USDT token
-///   WBNB_ADDRESS       — WBNB token
+///   PRIVATE_KEY        鈥?deployer private key
+///   AGENT_NFA          鈥?AgentNFA contract
+///   POLICY_GUARD_V4    鈥?PolicyGuardV4 contract
+///   TOKEN_WL           鈥?TokenWhitelistPolicy contract
+///   SPENDING_LIMIT     鈥?SpendingLimitPolicy contract
+///   COOLDOWN           鈥?CooldownPolicy contract
+///   RECEIVER_GUARD     鈥?ReceiverGuardPolicy contract
+///   DEX_WL             鈥?DexWhitelistPolicy contract
+///   LISTING_MANAGER    鈥?ListingManager contract
+///   ROUTER_ADDRESS     鈥?PancakeSwap V2 Router
+///   USDT_ADDRESS       鈥?USDT token
+///   WBNB_ADDRESS       鈥?WBNB token
 contract SetupV30Templates is Script {
     // Contract references
     PolicyGuardV4 guardV4;
@@ -49,7 +49,7 @@ contract SetupV30Templates is Script {
     address wbnb;
 
     // Template keys
-    bytes32 constant TEMPLATE_DCA = keccak256("dca_v3");
+    bytes32 constant TEMPLATE_LLM_BASE = keccak256("llm_base_v3");
     bytes32 constant TEMPLATE_LLM = keccak256("llm_trader_v3");
 
     function run() external {
@@ -72,65 +72,65 @@ contract SetupV30Templates is Script {
 
         vm.startBroadcast(deployerKey);
 
-        // ═══════════════════════════════════════════════════════
-        //  STEP 1: Create DCA Template Agent
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        //  STEP 1: Create LLM Base Template Agent
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-        uint256 dcaTokenId = _mintTemplateAgent(
+        uint256 llmBaseTokenId = _mintTemplateAgent(
             deployer,
-            keccak256("dca"),
-            "DCA Strategy Agent",
-            "Automated dollar-cost averaging into selected tokens"
+            keccak256("llm_trader"),
+            "LLM Base Strategy Agent",
+            "AI-powered autonomous trading with conservative risk profile"
         );
-        console.log("DCA Template Agent minted, tokenId:", dcaTokenId);
+        console.log("LLM Base Template Agent minted, tokenId:", llmBaseTokenId);
 
         // Register as template
-        nfa.registerTemplate(dcaTokenId, TEMPLATE_DCA);
-        console.log("DCA template registered with key:");
-        console.logBytes32(TEMPLATE_DCA);
+        nfa.registerTemplate(llmBaseTokenId, TEMPLATE_LLM_BASE);
+        console.log("LLM Base template registered with key:");
+        console.logBytes32(TEMPLATE_LLM_BASE);
 
-        // ═══════════════════════════════════════════════════════
-        //  STEP 2: Attach policies to DCA template
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        //  STEP 2: Attach policies to LLM Base template
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(receiverGuard));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(spendingLimit));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(tokenWL));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(dexWL));
-        guardV4.addTemplatePolicy(TEMPLATE_DCA, address(cooldownPolicy));
-        console.log("DCA template: 5 policies attached");
+        guardV4.addTemplatePolicy(TEMPLATE_LLM_BASE, address(receiverGuard));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM_BASE, address(spendingLimit));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM_BASE, address(tokenWL));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM_BASE, address(dexWL));
+        guardV4.addTemplatePolicy(TEMPLATE_LLM_BASE, address(cooldownPolicy));
+        console.log("LLM Base template: 5 policies attached");
 
-        // ═══════════════════════════════════════════════════════
-        //  STEP 3: Set spending ceiling for DCA template
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        //  STEP 3: Set spending ceiling for LLM Base template
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-        // DCA: conservative limits — 10 BNB per tx, 50 BNB daily, 500 bps max slippage
-        spendingLimit.setTemplateCeiling(TEMPLATE_DCA, 10 ether, 50 ether, 500);
-        console.log("DCA ceiling: 10 BNB/tx, 50 BNB/day, 5% slippage");
+        // LLM Base: conservative limits 鈥?10 BNB per tx, 50 BNB daily, 500 bps max slippage
+        spendingLimit.setTemplateCeiling(TEMPLATE_LLM_BASE, 10 ether, 50 ether, 500);
+        console.log("LLM Base ceiling: 10 BNB/tx, 50 BNB/day, 5% slippage");
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 4: Configure token + DEX whitelists on template
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         // Token whitelist: USDT, WBNB
-        tokenWL.addToken(dcaTokenId, usdt);
-        tokenWL.addToken(dcaTokenId, wbnb);
-        console.log("DCA token whitelist: USDT, WBNB");
+        tokenWL.addToken(llmBaseTokenId, usdt);
+        tokenWL.addToken(llmBaseTokenId, wbnb);
+        console.log("LLM Base token whitelist: USDT, WBNB");
 
         // DEX whitelist: PancakeSwap Router
-        dexWL.addDex(dcaTokenId, router);
-        console.log("DCA DEX whitelist: PancakeSwap Router");
+        dexWL.addDex(llmBaseTokenId, router);
+        console.log("LLM Base DEX whitelist: PancakeSwap Router");
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 5: Set cooldown (minimum 60s between executions)
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-        cooldownPolicy.setCooldown(dcaTokenId, 60);
-        console.log("DCA cooldown: 60 seconds");
+        cooldownPolicy.setCooldown(llmBaseTokenId, 60);
+        console.log("LLM Base cooldown: 60 seconds");
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 6: Bind template instance + set initial limits
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         // Bind the template token to its own template key
         // (so setLimits can look up the ceiling via instanceTemplate mapping)
@@ -143,23 +143,23 @@ contract SetupV30Templates is Script {
         // Note: bindInstanceTemplate is guarded by `onlyGuard`, so we prank in tests only.
         // On-chain, the guard binds during createInstance flow.
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 7: Create template listing on marketplace
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-        nfa.approve(address(lm), dcaTokenId);
+        nfa.approve(address(lm), llmBaseTokenId);
         bytes32 listingId = lm.createTemplateListing(
             address(nfa),
-            dcaTokenId,
+            llmBaseTokenId,
             uint96(0.005 ether), // 0.005 BNB per day
             1 // Min 1 day
         );
-        console.log("DCA template listed, listingId:");
+        console.log("LLM Base template listed, listingId:");
         console.logBytes32(listingId);
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 8: Create LLM Trader Template Agent
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         uint256 llmTokenId = _mintTemplateAgent(
             deployer,
@@ -174,9 +174,9 @@ contract SetupV30Templates is Script {
         console.log("LLM Trader template registered with key:");
         console.logBytes32(TEMPLATE_LLM);
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 9: Attach policies to LLM Trader template
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         guardV4.addTemplatePolicy(TEMPLATE_LLM, address(receiverGuard));
         guardV4.addTemplatePolicy(TEMPLATE_LLM, address(spendingLimit));
@@ -185,11 +185,11 @@ contract SetupV30Templates is Script {
         guardV4.addTemplatePolicy(TEMPLATE_LLM, address(cooldownPolicy));
         console.log("LLM Trader template: 5 policies attached");
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 10: Set spending ceiling for LLM Trader
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-        // LLM Trader: higher limits — 20 BNB per tx, 100 BNB daily, 300 bps max slippage
+        // LLM Trader: higher limits 鈥?20 BNB per tx, 100 BNB daily, 300 bps max slippage
         spendingLimit.setTemplateCeiling(
             TEMPLATE_LLM,
             20 ether,
@@ -198,9 +198,9 @@ contract SetupV30Templates is Script {
         );
         console.log("LLM ceiling: 20 BNB/tx, 100 BNB/day, 3% slippage");
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 11: Configure token + DEX whitelists for LLM Trader
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         tokenWL.addToken(llmTokenId, usdt);
         tokenWL.addToken(llmTokenId, wbnb);
@@ -209,16 +209,16 @@ contract SetupV30Templates is Script {
         dexWL.addDex(llmTokenId, router);
         console.log("LLM DEX whitelist: PancakeSwap Router");
 
-        // ═══════════════════════════════════════════════════════
-        //  STEP 12: Set cooldown for LLM Trader (30s — faster than DCA)
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        //  STEP 12: Set cooldown for LLM Trader (30s 鈥?faster than LLM Base)
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         cooldownPolicy.setCooldown(llmTokenId, 30);
         console.log("LLM cooldown: 30 seconds");
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  STEP 13: Create LLM Trader template listing
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         nfa.approve(address(lm), llmTokenId);
         bytes32 llmListingId = lm.createTemplateListing(
@@ -232,15 +232,15 @@ contract SetupV30Templates is Script {
 
         vm.stopBroadcast();
 
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         //  SUMMARY
-        // ═══════════════════════════════════════════════════════
+        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
         console.log("");
         console.log("========== V3.1 TEMPLATE SETUP COMPLETE ==========");
         console.log("");
-        console.log("--- DCA Template ---");
-        console.log("  tokenId      :", dcaTokenId);
+        console.log("--- LLM Base Template ---");
+        console.log("  tokenId      :", llmBaseTokenId);
         console.log(
             "  Policies     : 5 (Receiver, Spending, Token, DEX, Cooldown)"
         );
@@ -294,3 +294,6 @@ contract SetupV30Templates is Script {
         return tokenId;
     }
 }
+
+
+

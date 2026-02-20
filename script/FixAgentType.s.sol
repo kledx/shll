@@ -3,15 +3,15 @@ pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 
-/// @title FixAgentType — Set agentType for existing tokens (requires V3.1 AgentNFA)
+/// @title FixAgentType 鈥?Set agentType for existing tokens (requires V3.1 AgentNFA)
 /// @dev Usage:
 ///   forge script script/FixAgentType.s.sol --rpc-url $RPC_URL --broadcast --gas-price 5000000000 -vvv
 ///
 /// Required env vars:
-///   PRIVATE_KEY   — contract owner
-///   AGENT_NFA     — AgentNFA contract address (must be V3.1+ with setAgentType)
-///   FIX_TOKEN_ID  — token ID to fix (e.g. 1)
-///   FIX_TYPE      — agent type string (e.g. "dca", "llm_trader")
+///   PRIVATE_KEY   鈥?contract owner
+///   AGENT_NFA     鈥?AgentNFA contract address (must be V3.1+ with setAgentType)
+///   FIX_TOKEN_ID  鈥?token ID to fix (e.g. 1)
+///   FIX_TYPE      鈥?agent type string (e.g. "llm_trader")
 
 interface IAgentNFAV31 {
     function setAgentType(uint256 tokenId, bytes32 _agentType) external;
@@ -53,3 +53,5 @@ contract FixAgentType is Script {
         console.log("SUCCESS: agentType updated");
     }
 }
+
+

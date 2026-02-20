@@ -6,13 +6,15 @@ import {AgentNFA} from "../src/AgentNFA.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
 import {PolicyGuardV4} from "../src/PolicyGuardV4.sol";
 import {ListingManager} from "../src/ListingManager.sol";
+import {Errors} from "../src/libs/Errors.sol";
 import {PolicyKeys} from "../src/libs/PolicyKeys.sol";
 import {Action} from "../src/types/Action.sol";
 import {IBAP578} from "../src/interfaces/IBAP578.sol";
 import {IERC4907} from "../src/interfaces/IERC4907.sol";
+import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-/// @title MockERC20 — Minimal ERC20 for testing
+/// @title MockERC20 鈥?Minimal ERC20 for testing
 contract MockERC20 {
     string public name;
     string public symbol;
@@ -57,19 +59,20 @@ contract MockERC20 {
     }
 }
 
-/// @title MockLogicContract — Minimal contract for BAP-578 logicAddress tests
+/// @title MockLogicContract 鈥?Minimal contract for BAP-578 logicAddress tests
 contract MockLogicContract {
     function version() external pure returns (string memory) {
         return "1.0.0";
     }
 }
 
-/// @title Integration Test — Full E2E flow + BAP-578 tests
+/// @title Integration Test 鈥?Full E2E flow + BAP-578 tests
 contract IntegrationTest is Test {
     AgentNFA public nfa;
     PolicyGuardV4 public guard;
     ListingManager public listing;
     MockERC20 public usdt;
+    DexWhitelistPolicy public dexWL;
 
     address owner = address(this);
     address renter = address(0xBEEF);
@@ -102,62 +105,97 @@ contract IntegrationTest is Test {
         nfa = new AgentNFA(address(guard));
         listing = new ListingManager();
         usdt = new MockERC20("USDT", "USDT");
+        dexWL = new DexWhitelistPolicy(address(guard), address(nfa));
 
         // Setup
         nfa.setListingManager(address(listing));
+        guard.setAgentNFA(address(nfa));
+        guard.setListingManager(address(listing));
+        listing.setPolicyGuard(address(guard));
 
         // Mint an agent with BAP-578 metadata
         tokenId = nfa.mintAgent(
             owner,
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes32("default"),
-            bytes32(0), // agentType (V3.0)
+            nfa.TYPE_LLM_TRADER(),
             "ipfs://agent1",
             sampleMetadata
         );
         account = nfa.accountOf(tokenId);
+        nfa.registerTemplate(tokenId, bytes32("default-template"));
+        guard.approvePolicyContract(address(dexWL));
+        guard.addTemplatePolicy(bytes32("default-template"), address(dexWL));
 
-        // Create listing
-        listingId = listing.createListing(address(nfa), tokenId, 0.1 ether, 1);
+        // Create template listing
+        listingId = listing.createTemplateListing(
+            address(nfa),
+            tokenId,
+            0.1 ether,
+            1
+        );
 
         // Fund renter
         vm.deal(renter, 10 ether);
         usdt.mint(renter, 1000 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    function _rentTemplateInstance(
+        uint32 daysToRent,
+        uint256 value
+    ) internal returns (uint256 instanceId, address instanceAccount, uint64 expires) {
+        vm.prank(renter);
+        instanceId = listing.rentToMintWithParams{value: value}(
+            listingId,
+            daysToRent,
+            0,
+            0,
+            ""
+        );
+        instanceAccount = nfa.accountOf(instanceId);
+        expires = uint64(nfa.userExpires(instanceId));
+    }
+
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 E2E: HAPPY PATH
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_e2e_rentAndDeposit() public {
-        // Renter rents the agent
-        vm.prank(renter);
-        uint64 expires = listing.rent{value: 0.1 ether}(listingId, 1);
+        // Renter rents by minting an instance
+        (
+            uint256 instanceId,
+            address instanceAccount,
+            uint64 expires
+        ) = _rentTemplateInstance(1, 0.1 ether);
 
-        assertEq(nfa.userOf(tokenId), renter);
+        assertEq(nfa.userOf(instanceId), renter);
         assertTrue(expires > block.timestamp);
 
         // Renter deposits USDT into AgentAccount
         vm.startPrank(renter);
-        usdt.approve(account, 500 ether);
-        AgentAccount(payable(account)).depositToken(address(usdt), 500 ether);
+        usdt.approve(instanceAccount, 500 ether);
+        AgentAccount(payable(instanceAccount)).depositToken(
+            address(usdt),
+            500 ether
+        );
         vm.stopPrank();
 
-        assertEq(usdt.balanceOf(account), 500 ether);
+        assertEq(usdt.balanceOf(instanceAccount), 500 ether);
     }
 
-    function test_e2e_rentAndWithdraw() public {
-        // Rent
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
+    function test_e2e_renterCanWithdrawOwnInstanceVault() public {
+        (, address instanceAccount, ) = _rentTemplateInstance(1, 0.1 ether);
 
         // Deposit
         vm.startPrank(renter);
-        usdt.approve(account, 200 ether);
-        AgentAccount(payable(account)).depositToken(address(usdt), 200 ether);
+        usdt.approve(instanceAccount, 200 ether);
+        AgentAccount(payable(instanceAccount)).depositToken(
+            address(usdt),
+            200 ether
+        );
 
-        // Withdraw to self
-        AgentAccount(payable(account)).withdrawToken(
+        // Instance owner (renter) can withdraw own vault funds
+        AgentAccount(payable(instanceAccount)).withdrawToken(
             address(usdt),
             100 ether,
             renter
@@ -165,29 +203,30 @@ contract IntegrationTest is Test {
         vm.stopPrank();
 
         assertEq(usdt.balanceOf(renter), 900 ether); // 1000 - 200 + 100
-        assertEq(usdt.balanceOf(account), 100 ether);
+        assertEq(usdt.balanceOf(instanceAccount), 100 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 SECURITY: ATTACK SCENARIOS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     // NOTE: V1 PolicyGuard attack tests (swapToRenterEOA, approveToEvil, infiniteApproval)
-    // have been removed — covered by V3_0_Integration.t.sol with composable policies.
+    // have been removed 鈥?covered by V3_0_Integration.t.sol with composable policies.
 
     function test_attack_withdrawToOther() public {
-        // Rent
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
+        (, address instanceAccount, ) = _rentTemplateInstance(1, 0.1 ether);
 
         // Deposit
         vm.startPrank(renter);
-        usdt.approve(account, 200 ether);
-        AgentAccount(payable(account)).depositToken(address(usdt), 200 ether);
+        usdt.approve(instanceAccount, 200 ether);
+        AgentAccount(payable(instanceAccount)).depositToken(
+            address(usdt),
+            200 ether
+        );
 
         // Try withdraw to evil address
         vm.expectRevert(); // InvalidWithdrawRecipient
-        AgentAccount(payable(account)).withdrawToken(
+        AgentAccount(payable(instanceAccount)).withdrawToken(
             address(usdt),
             100 ether,
             evil
@@ -195,18 +234,16 @@ contract IntegrationTest is Test {
         vm.stopPrank();
     }
 
-    function test_attack_executeAfterExpiry() public {
-        // Rent for 1 day
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
+    function test_instanceOwnerCanExecuteAfterLeaseExpiry() public {
+        (uint256 instanceId, , ) = _rentTemplateInstance(1, 0.1 ether);
 
         // Fast forward past lease expiry
         vm.warp(block.timestamp + 2 days);
 
         // userOf should now return address(0)
-        assertEq(nfa.userOf(tokenId), address(0));
+        assertEq(nfa.userOf(instanceId), address(0));
 
-        // Try to execute — should fail (renter is no longer active user)
+        // Try to execute 鈥?should fail (renter is no longer active user)
         vm.startPrank(renter);
         bytes memory approveData = abi.encodeWithSelector(
             PolicyKeys.APPROVE,
@@ -215,13 +252,12 @@ contract IntegrationTest is Test {
         );
         Action memory action = Action(address(usdt), 0, approveData);
 
-        vm.expectRevert(); // Unauthorized (userOf returns 0)
-        nfa.execute(tokenId, action);
+        nfa.execute(instanceId, action);
         vm.stopPrank();
     }
 
     function test_attack_nonRenterExecute() public {
-        // Mint but do NOT rent — evil tries to execute directly
+        // Mint but do NOT rent 鈥?evil tries to execute directly
         vm.prank(evil);
         bytes memory approveData = abi.encodeWithSelector(
             PolicyKeys.APPROVE,
@@ -241,45 +277,28 @@ contract IntegrationTest is Test {
         AgentAccount(payable(account)).executeCall(address(usdt), 0, "");
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 LISTING MANAGER TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_listing_createAndRent() public {
         // Listing already created in setUp
-        assertEq(nfa.userOf(tokenId), address(0)); // not rented
+        assertEq(nfa.userOf(tokenId), address(0)); // template token not rented
 
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        assertEq(nfa.userOf(tokenId), renter);
+        (uint256 instanceId, , ) = _rentTemplateInstance(1, 0.1 ether);
+        assertEq(nfa.userOf(instanceId), renter);
     }
 
     function test_listing_insufficientPayment() public {
         vm.prank(renter);
         vm.expectRevert(); // InsufficientPayment
-        listing.rent{value: 0.05 ether}(listingId, 1);
-    }
-
-    function test_listing_extend() public {
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        uint256 oldExpires = nfa.userExpires(tokenId);
-
-        vm.prank(renter);
-        listing.extend{value: 0.2 ether}(listingId, 2);
-
-        uint256 newExpires = nfa.userExpires(tokenId);
-        assertGt(newExpires, oldExpires);
-        assertEq(newExpires, oldExpires + 2 days);
+        listing.rentToMintWithParams{value: 0.05 ether}(listingId, 1, 0, 0, "");
     }
 
     function test_listing_ownerClaimIncome() public {
         uint256 ownerBalBefore = address(owner).balance;
 
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
+        _rentTemplateInstance(1, 0.1 ether);
 
         listing.claimRentalIncome();
 
@@ -289,7 +308,7 @@ contract IntegrationTest is Test {
     function test_listing_nonOwnerCannotList() public {
         vm.prank(renter);
         vm.expectRevert(); // NotListingOwner
-        listing.createListing(address(nfa), tokenId, 0.1 ether, 1);
+        listing.createTemplateListing(address(nfa), tokenId, 0.1 ether, 1);
     }
 
     function test_listing_cancel() public {
@@ -297,12 +316,77 @@ contract IntegrationTest is Test {
 
         vm.prank(renter);
         vm.expectRevert(); // ListingNotFound
-        listing.rent{value: 0.1 ether}(listingId, 1);
+        listing.rentToMintWithParams{value: 0.1 ether}(listingId, 1, 0, 0, "");
     }
 
-    // ═══════════════════════════════════════════════════════════
+    function test_listing_transfer_oldOwnerCannotCancel_newOwnerCan() public {
+        address newOwner = address(0xCAFE);
+        nfa.transferFrom(owner, newOwner, tokenId);
+
+        vm.expectRevert(); // NotListingOwner after owner sync
+        listing.cancelListing(listingId);
+
+        vm.prank(newOwner);
+        listing.cancelListing(listingId);
+    }
+
+    function test_listing_transfer_rent_incomeGoesToCurrentOwner() public {
+        address newOwner = address(0xCAFE);
+        nfa.transferFrom(owner, newOwner, tokenId);
+
+        _rentTemplateInstance(1, 0.1 ether);
+
+        assertEq(listing.pendingWithdrawals(newOwner), 0.1 ether);
+        assertEq(listing.pendingWithdrawals(owner), 0);
+    }
+
+    function test_template_rentToMint_maxDaysEnforced() public {
+        guard.setAgentNFA(address(nfa));
+        guard.setListingManager(address(listing));
+        listing.setPolicyGuard(address(guard));
+
+        uint256 templateId = nfa.mintAgent(
+            owner,
+            bytes32("default"),
+            nfa.TYPE_LLM_TRADER(),
+            "ipfs://template-max-days",
+            sampleMetadata
+        );
+        nfa.registerTemplate(templateId, bytes32("template-max-days"));
+        guard.addTemplatePolicy(bytes32("template-max-days"), address(dexWL));
+
+        bytes32 tplListingId = listing.createTemplateListing(
+            address(nfa),
+            templateId,
+            0.1 ether,
+            1
+        );
+        listing.setListingConfig(tplListingId, 3);
+
+        vm.prank(renter);
+        vm.expectRevert(); // MaxDaysExceeded
+        listing.rentToMintWithParams{value: 0.5 ether}(
+            tplListingId,
+            5,
+            0,
+            0,
+            ""
+        );
+
+        vm.prank(renter);
+        uint256 instanceId = listing.rentToMintWithParams{value: 0.3 ether}(
+            tplListingId,
+            3,
+            0,
+            0,
+            ""
+        );
+        assertEq(nfa.userOf(instanceId), renter);
+    }
+
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 NFA TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_nfa_mintCreatesAccount() public view {
         assertTrue(account != address(0));
@@ -321,10 +405,18 @@ contract IntegrationTest is Test {
     }
 
     function test_nfa_setPolicy() public {
+        uint256 standaloneToken = nfa.mintAgent(
+            owner,
+            bytes32("default"),
+            nfa.TYPE_LLM_TRADER(),
+            "ipfs://standalone",
+            sampleMetadata
+        );
+
         // forge-lint: disable-next-line(unsafe-typecast)
         bytes32 newPolicy = bytes32("advanced");
-        nfa.setPolicy(tokenId, newPolicy);
-        assertEq(nfa.policyIdOf(tokenId), newPolicy);
+        nfa.setPolicy(standaloneToken, newPolicy);
+        assertEq(nfa.policyIdOf(standaloneToken), newPolicy);
     }
 
     function test_nfa_nonOwnerCannotSetPolicy() public {
@@ -340,9 +432,9 @@ contract IntegrationTest is Test {
         nfa.setUser(tokenId, evil, uint64(block.timestamp + 1 days));
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 AGENT ACCOUNT TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_account_depositAndBalance() public {
         usdt.mint(renter, 100 ether);
@@ -362,6 +454,15 @@ contract IntegrationTest is Test {
         assertEq(account.balance, 0.5 ether);
     }
 
+    function test_account_instanceOwnerCanWithdrawNative() public {
+        (, address instanceAccount, ) = _rentTemplateInstance(1, 0.1 ether);
+        vm.deal(instanceAccount, 1 ether);
+
+        vm.prank(renter);
+        AgentAccount(payable(instanceAccount)).withdrawNative(0.1 ether, renter);
+        assertEq(instanceAccount.balance, 0.9 ether);
+    }
+
     function test_account_ownerWithdraw() public {
         usdt.mint(account, 100 ether);
 
@@ -374,9 +475,9 @@ contract IntegrationTest is Test {
         assertEq(usdt.balanceOf(owner), balBefore + 50 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: METADATA TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_getAgentMetadata() public view {
         IBAP578.AgentMetadata memory meta = nfa.getAgentMetadata(tokenId);
@@ -411,9 +512,9 @@ contract IntegrationTest is Test {
         nfa.updateAgentMetadata(tokenId, sampleMetadata);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: STATE TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_getState() public view {
         IBAP578.State memory state = nfa.getState(tokenId);
@@ -433,9 +534,9 @@ contract IntegrationTest is Test {
         assertEq(state.balance, 0.5 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: FUND AGENT TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_fundAgent() public {
         vm.deal(renter, 2 ether);
@@ -445,9 +546,9 @@ contract IntegrationTest is Test {
         assertEq(account.balance, 1 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: LOGIC ADDRESS TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_setLogicAddress() public {
         MockLogicContract logic = new MockLogicContract();
@@ -475,9 +576,9 @@ contract IntegrationTest is Test {
         nfa.setLogicAddress(tokenId, address(logic));
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: LIFECYCLE TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_pauseAgent() public {
         nfa.pauseAgent(tokenId);
@@ -551,9 +652,9 @@ contract IntegrationTest is Test {
         nfa.pauseAgent(tokenId);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: EXECUTE ACTION TESTS
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_executeAction() public {
         // Encode Action as bytes for BAP-578 interface
@@ -584,9 +685,23 @@ contract IntegrationTest is Test {
         assertEq(state.lastActionTimestamp, 12345);
     }
 
-    // ═══════════════════════════════════════════════════════════
+    function test_pause_blocks_executeAction() public {
+        bytes memory approveData = abi.encodeWithSelector(
+            PolicyKeys.APPROVE,
+            ROUTER,
+            100 ether
+        );
+        Action memory action = Action(address(usdt), 0, approveData);
+        bytes memory encodedAction = abi.encode(action);
+
+        nfa.pause();
+        vm.expectRevert(); // Pausable: paused
+        nfa.executeAction(tokenId, encodedAction);
+    }
+
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 BAP-578: INTERFACE SUPPORT
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_bap578_supportsInterface() public view {
         assertTrue(nfa.supportsInterface(type(IBAP578).interfaceId));
@@ -595,118 +710,31 @@ contract IntegrationTest is Test {
         assertTrue(nfa.supportsInterface(0x80ac58cd));
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
     //                 RENTAL GUARD TESTS
-    // ═══════════════════════════════════════════════════════════
-
-    function test_guard_gracePeriodBlocksOtherRenter() public {
-        // Owner sets 1-hour grace period for last renter
-        listing.setListingConfig(listingId, 0, 1 hours);
-
-        // Renter rents for 1 day
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Fast forward past lease expiry (1 day + 1 second)
-        vm.warp(block.timestamp + 1 days + 1);
-        assertEq(nfa.userOf(tokenId), address(0)); // lease expired
-
-        // Another user tries to rent during grace period — should be blocked
-        address renter2 = address(0xCAFE);
-        vm.deal(renter2, 10 ether);
-        vm.prank(renter2);
-        vm.expectRevert(); // GracePeriodActive
-        listing.rent{value: 0.1 ether}(listingId, 1);
-    }
-
-    function test_guard_lastRenterCanRentDuringGrace() public {
-        // Owner sets 1-hour grace period
-        listing.setListingConfig(listingId, 0, 1 hours);
-
-        // Renter rents for 1 day
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Fast forward past lease expiry (1 day + 1 second) but within grace
-        vm.warp(block.timestamp + 1 days + 1);
-
-        // Last renter CAN re-rent during grace period
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-        assertEq(nfa.userOf(tokenId), renter);
-    }
-
-    function test_guard_anyoneCanRentAfterGrace() public {
-        // Owner sets 1-hour grace period
-        listing.setListingConfig(listingId, 0, 1 hours);
-
-        // Renter rents for 1 day
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Fast forward past lease expiry + grace period
-        vm.warp(block.timestamp + 1 days + 1 hours + 1);
-
-        // Anyone can now rent
-        address renter2 = address(0xCAFE);
-        vm.deal(renter2, 10 ether);
-        vm.prank(renter2);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-        assertEq(nfa.userOf(tokenId), renter2);
-    }
+    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
     function test_guard_maxDaysEnforced() public {
-        // Owner sets maxDays = 3
-        listing.setListingConfig(listingId, 3, 0);
-
-        // Try to rent for 5 days — should fail
+        listing.setListingConfig(listingId, 3);
         vm.prank(renter);
         vm.expectRevert(); // MaxDaysExceeded
-        listing.rent{value: 0.5 ether}(listingId, 5);
-
-        // Rent for 3 days — should succeed
-        vm.prank(renter);
-        listing.rent{value: 0.3 ether}(listingId, 3);
-        assertEq(nfa.userOf(tokenId), renter);
-    }
-
-    function test_guard_noGracePeriodAllowsImmediateRerent() public {
-        // Default: no grace period configured
-
-        // Renter rents for 1 day
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-
-        // Fast forward past expiry
-        vm.warp(block.timestamp + 1 days + 1);
-
-        // Anyone can rent immediately (no grace period)
-        address renter2 = address(0xCAFE);
-        vm.deal(renter2, 10 ether);
-        vm.prank(renter2);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-        assertEq(nfa.userOf(tokenId), renter2);
+        listing.rentToMintWithParams{value: 0.5 ether}(listingId, 5, 0, 0, "");
+        (uint256 instanceId, , ) = _rentTemplateInstance(3, 0.3 ether);
+        assertEq(nfa.userOf(instanceId), renter);
     }
 
     function test_guard_pauseRenting() public {
-        // Owner pauses renting
         listing.pauseRenting(listingId);
-
-        // Renter tries to rent — should fail
         vm.prank(renter);
-        vm.expectRevert(); // RentingPaused
-        listing.rent{value: 0.1 ether}(listingId, 1);
+        vm.expectRevert(Errors.RentingPaused.selector);
+        listing.rentToMintWithParams{value: 0.1 ether}(listingId, 1, 0, 0, "");
     }
 
     function test_guard_resumeRenting() public {
-        // Owner pauses then resumes renting
         listing.pauseRenting(listingId);
         listing.resumeRenting(listingId);
-
-        // Renter should be able to rent now
-        vm.prank(renter);
-        listing.rent{value: 0.1 ether}(listingId, 1);
-        assertEq(nfa.userOf(tokenId), renter);
+        (uint256 instanceId, , ) = _rentTemplateInstance(1, 0.1 ether);
+        assertEq(nfa.userOf(instanceId), renter);
     }
 
     // allow this contract to receive ETH
@@ -722,3 +750,5 @@ contract IntegrationTest is Test {
         return this.onERC721Received.selector;
     }
 }
+
+

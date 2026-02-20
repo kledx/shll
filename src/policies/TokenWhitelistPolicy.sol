@@ -2,81 +2,104 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {IERC4907} from "../interfaces/IERC4907.sol";
 import {CalldataDecoder} from "../libs/CalldataDecoder.sol";
+import {IAgentNFATemplateView} from "../interfaces/IAgentNFATemplateView.sol";
 
-/// @title TokenWhitelistPolicy — Only allow swaps involving whitelisted tokens
-/// @notice Uses address mapping instead of bitmap for unlimited token support.
+/// @title TokenWhitelistPolicy
+/// @notice Swap path token allowlist with template baseline + instance delta.
+/// @dev Product semantics:
+///      1) Template allowlist is always effective for instances.
+///      2) Instance can add extra allowed tokens (incremental allow).
+///      3) Instance can block tokens to tighten boundaries.
 contract TokenWhitelistPolicy is IPolicy {
-    // ─── Storage ───
+    // --- Storage ---
     mapping(uint256 => mapping(address => bool)) public tokenAllowed;
     mapping(uint256 => address[]) internal _tokenList;
+    mapping(uint256 => bool) public hasCustomTokenList;
+
+    mapping(uint256 => mapping(address => bool)) public tokenBlocked;
+    mapping(uint256 => address[]) internal _blockedTokenList;
 
     address public immutable guard;
     address public immutable agentNFA;
 
-    // --- Selectors: All PancakeSwap V2 Router swap variants ---
+    // --- Selectors: PancakeSwap V2 variants ---
     // Group A: 5-param layout (amount, amount, path, to, deadline)
-    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens
-    bytes4 private constant SWAP_TOKENS_EXACT = 0x8803dbee; // swapTokensForExactTokens
-    bytes4 private constant SWAP_TOKENS_EXACT_ETH = 0x4a25d94a; // swapTokensForExactETH
-    bytes4 private constant SWAP_EXACT_TOKENS_ETH = 0x791ac947; // swapExactTokensForETHSupportingFeeOnTransferTokens
-    bytes4 private constant SWAP_EXACT_TOKENS_FEE = 0x5c11d795; // swapExactTokensForTokensSupportingFeeOnTransferTokens
+    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739;
+    bytes4 private constant SWAP_TOKENS_EXACT = 0x8803dbee;
+    bytes4 private constant SWAP_TOKENS_EXACT_ETH = 0x4a25d94a;
+    bytes4 private constant SWAP_EXACT_TOKENS_ETH = 0x791ac947;
+    bytes4 private constant SWAP_EXACT_TOKENS_FEE = 0x5c11d795;
     // Group B: 4-param layout (amount, path, to, deadline)
-    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5; // swapExactETHForTokens
-    bytes4 private constant SWAP_EXACT_ETH_FEE = 0xb6f9de95; // swapExactETHForTokensSupportingFeeOnTransferTokens
+    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5;
+    bytes4 private constant SWAP_EXACT_ETH_FEE = 0xb6f9de95;
 
-    // ─── Events ───
+    // --- Events ---
     event TokenAdded(uint256 indexed instanceId, address indexed token);
     event TokenRemoved(uint256 indexed instanceId, address indexed token);
+    event TokenBlocked(uint256 indexed instanceId, address indexed token);
+    event TokenUnblocked(uint256 indexed instanceId, address indexed token);
 
-    // ─── Errors ───
+    // --- Errors ---
     error NotRenterOrOwner();
     error TokenAlreadyAdded();
+    error TokenAlreadyBlocked();
+    error TokenBlockNotFound();
 
     constructor(address _guard, address _nfa) {
         guard = _guard;
         agentNFA = _nfa;
     }
 
-    // ═══════════════════════════════════════════════════════
-    //                   CONFIGURATION
-    // ═══════════════════════════════════════════════════════
-
     function addToken(uint256 instanceId, address token) external {
         _checkRenterOrOwner(instanceId);
         if (tokenAllowed[instanceId][token]) revert TokenAlreadyAdded();
         tokenAllowed[instanceId][token] = true;
         _tokenList[instanceId].push(token);
+        if (_isInstance(instanceId)) hasCustomTokenList[instanceId] = true;
         emit TokenAdded(instanceId, token);
     }
 
     function removeToken(uint256 instanceId, address token) external {
         _checkRenterOrOwner(instanceId);
         tokenAllowed[instanceId][token] = false;
-        // M-4 fix: only emit event when token is actually found and removed
-        address[] storage list = _tokenList[instanceId];
-        for (uint256 i = 0; i < list.length; i++) {
-            if (list[i] == token) {
-                list[i] = list[list.length - 1];
-                list.pop();
-                emit TokenRemoved(instanceId, token);
-                return;
-            }
-        }
+        _removeFromArray(_tokenList[instanceId], token);
+        _refreshCustomFlag(instanceId);
+        emit TokenRemoved(instanceId, token);
     }
 
-    /// @notice Get all whitelisted tokens for an instance
     function getTokenList(
         uint256 instanceId
     ) external view returns (address[] memory) {
         return _tokenList[instanceId];
     }
 
-    // ═══════════════════════════════════════════════════════
-    //                   IPolicy INTERFACE
-    // ═══════════════════════════════════════════════════════
+    function blockToken(uint256 instanceId, address token) external {
+        _checkRenterOrOwner(instanceId);
+        if (tokenBlocked[instanceId][token]) revert TokenAlreadyBlocked();
+        tokenBlocked[instanceId][token] = true;
+        _blockedTokenList[instanceId].push(token);
+        if (_isInstance(instanceId)) hasCustomTokenList[instanceId] = true;
+        emit TokenBlocked(instanceId, token);
+    }
+
+    function unblockToken(uint256 instanceId, address token) external {
+        _checkRenterOrOwner(instanceId);
+        if (!tokenBlocked[instanceId][token]) revert TokenBlockNotFound();
+        tokenBlocked[instanceId][token] = false;
+        _removeFromArray(_blockedTokenList[instanceId], token);
+        _refreshCustomFlag(instanceId);
+        emit TokenUnblocked(instanceId, token);
+    }
+
+    function getBlockedTokenList(
+        uint256 instanceId
+    ) external view returns (address[] memory) {
+        return _blockedTokenList[instanceId];
+    }
 
     function check(
         uint256 instanceId,
@@ -86,11 +109,9 @@ contract TokenWhitelistPolicy is IPolicy {
         bytes calldata callData,
         uint256
     ) external view override returns (bool ok, string memory reason) {
-        // SECURITY WARNING (H-2): Fail-open by design — empty whitelist = all tokens allowed.
-        // Deployer MUST configure token whitelist per-instance after setup.
-        if (_tokenList[instanceId].length == 0) return (true, "");
+        // Fail-open by product design: no allowlist config => policy passive.
+        if (!_hasAnyAllowedTokens(instanceId)) return (true, "");
 
-        // Group A: 5-param swap decode (swapExactTokensForTokens layout)
         if (
             selector == SWAP_EXACT_TOKENS ||
             selector == SWAP_TOKENS_EXACT ||
@@ -111,7 +132,7 @@ contract TokenWhitelistPolicy is IPolicy {
             return _checkPath(instanceId, path);
         }
 
-        // Non-swap selectors pass through (e.g. approve)
+        // Non-swap selectors pass through.
         return (true, "");
     }
 
@@ -123,26 +144,77 @@ contract TokenWhitelistPolicy is IPolicy {
         return true;
     }
 
-    // ═══════════════════════════════════════════════════════
-    //                     INTERNALS
-    // ═══════════════════════════════════════════════════════
-
     function _checkPath(
         uint256 instanceId,
         address[] memory path
     ) internal view returns (bool, string memory) {
+        bool isInst = _isInstance(instanceId);
+        uint256 templateId = isInst ? _templateIdOf(instanceId) : 0;
+
         for (uint256 i = 0; i < path.length; i++) {
-            if (!tokenAllowed[instanceId][path[i]]) {
+            address token = path[i];
+            if (tokenBlocked[instanceId][token]) {
+                return (false, "Token blocked by instance");
+            }
+
+            bool allowed = tokenAllowed[instanceId][token];
+            if (!allowed && isInst) {
+                allowed = tokenAllowed[templateId][token];
+            }
+            if (!allowed) {
                 return (false, "Token not in whitelist");
             }
         }
         return (true, "");
     }
 
-    function _checkRenterOrOwner(uint256 instanceId) internal view {
-        address renter = IERC4907(agentNFA).userOf(instanceId);
-        if (msg.sender != renter && msg.sender != Ownable(guard).owner()) {
-            revert NotRenterOrOwner();
+    function _hasAnyAllowedTokens(uint256 instanceId) internal view returns (bool) {
+        if (_tokenList[instanceId].length > 0) return true;
+        if (_isInstance(instanceId)) {
+            uint256 templateId = _templateIdOf(instanceId);
+            if (_tokenList[templateId].length > 0) return true;
         }
+        return false;
+    }
+
+    function _isInstance(uint256 instanceId) internal view returns (bool) {
+        return IAgentNFATemplateView(agentNFA).isInstance(instanceId);
+    }
+
+    function _templateIdOf(uint256 instanceId) internal view returns (uint256) {
+        return IAgentNFATemplateView(agentNFA).templateOf(instanceId);
+    }
+
+    function _refreshCustomFlag(uint256 instanceId) internal {
+        if (!_isInstance(instanceId)) return;
+        hasCustomTokenList[instanceId] =
+            _tokenList[instanceId].length > 0 ||
+            _blockedTokenList[instanceId].length > 0;
+    }
+
+    function _removeFromArray(address[] storage list, address item) internal {
+        for (uint256 i = 0; i < list.length; i++) {
+            if (list[i] == item) {
+                list[i] = list[list.length - 1];
+                list.pop();
+                return;
+            }
+        }
+    }
+
+    function _checkRenterOrOwner(uint256 instanceId) internal view {
+        if (msg.sender == Ownable(guard).owner()) return;
+        address renter = IERC4907(agentNFA).userOf(instanceId);
+        if (msg.sender == renter) return;
+        if (agentNFA.code.length > 0) {
+            (bool ownerOk, bytes memory ownerData) = agentNFA.staticcall(
+                abi.encodeWithSelector(IERC721.ownerOf.selector, instanceId)
+            );
+            if (ownerOk && ownerData.length >= 32) {
+                address tokenOwner = abi.decode(ownerData, (address));
+                if (msg.sender == tokenOwner) return;
+            }
+        }
+        revert NotRenterOrOwner();
     }
 }
