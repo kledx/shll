@@ -16,12 +16,11 @@ import {DexWhitelistPolicy} from "../src/policies/DexWhitelistPolicy.sol";
 ///   POLICY_GUARD_V4    — existing PolicyGuardV4 address
 contract DeployHotfixDexWhitelist is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         // Hardcoded mainnet addresses to bypass .env confusion
         address agentNFA = 0x327ec0BEa2c632A7978e9735272edE710B0F9791;
         address guardV4Addr = 0xe8828aB104a24114A8fB3AfA5BcfCc09a069B427;
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast();
 
         PolicyGuardV4 guardV4 = PolicyGuardV4(guardV4Addr);
         bytes32 templateId = keccak256("llm_trader");
