@@ -32,11 +32,22 @@ contract ReceiverGuardPolicy is IPolicy {
     function check(
         uint256 instanceId,
         address,
-        address,
+        address target,
         bytes4 selector,
         bytes calldata callData,
-        uint256
+        uint256 value
     ) external view override returns (bool ok, string memory reason) {
+        // H-3 fix: Block empty-calldata native value transfers to non-vault addresses.
+        // Previously, non-swap selectors were unconditionally passed through, allowing
+        // an operator to drain native currency via execute(target=attacker, value=balance, data="").
+        if (selector == bytes4(0) && value > 0) {
+            address vault = IAgentNFAView(agentNFA).accountOf(instanceId);
+            if (target != vault) {
+                return (false, "Native transfer must target vault");
+            }
+            return (true, "");
+        }
+
         address recipient;
 
         // Group A: 5-param swap decode (swapExactTokensForTokens layout)
@@ -58,8 +69,7 @@ contract ReceiverGuardPolicy is IPolicy {
         }
 
         // Vault = accountOf(instanceId)
-        address vault = IAgentNFAView(agentNFA).accountOf(instanceId);
-        if (recipient != vault) {
+        if (recipient != IAgentNFAView(agentNFA).accountOf(instanceId)) {
             return (false, "Receiver must be vault");
         }
         return (true, "");

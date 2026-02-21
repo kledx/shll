@@ -72,9 +72,9 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
         uint256
     ) external view override returns (bool ok, string memory reason) {
         uint256 cd = _resolveCooldown(instanceId);
-        // SECURITY WARNING (H-2): Fail-open by design — no cooldown configured = no rate limit.
-        // Deployer MUST configure cooldown per-instance after setup.
-        if (cd == 0) return (true, "");
+        // Fail-close: unconfigured cooldown blocks all operations.
+        // Previously fail-open, allowing unrestricted execution frequency when no cooldown was set.
+        if (cd == 0) return (false, "Cooldown not configured");
 
         uint256 elapsed = block.timestamp - lastExecution[instanceId];
         if (elapsed < cd) {

@@ -109,8 +109,10 @@ contract TokenWhitelistPolicy is IPolicy {
         bytes calldata callData,
         uint256
     ) external view override returns (bool ok, string memory reason) {
-        // Fail-open by product design: no allowlist config => policy passive.
-        if (!_hasAnyAllowedTokens(instanceId)) return (true, "");
+        // Fail-close: unconfigured token whitelist blocks all swap operations.
+        // Previously fail-open, allowing unrestricted token paths when no tokens were whitelisted.
+        if (!_hasAnyAllowedTokens(instanceId))
+            return (false, "Token whitelist not configured");
 
         if (
             selector == SWAP_EXACT_TOKENS ||

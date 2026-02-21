@@ -107,8 +107,10 @@ contract DexWhitelistPolicy is IPolicy {
             return (false, "DEX blocked by instance");
         }
 
-        // Fail-open by product design: no allowlist config => policy passive.
-        if (!_hasAnyAllowedDex(instanceId)) return (true, "");
+        // Fail-close: unconfigured DEX whitelist blocks all operations.
+        // Previously fail-open, allowing unrestricted target access when no DEXes were whitelisted.
+        if (!_hasAnyAllowedDex(instanceId))
+            return (false, "DEX whitelist not configured");
 
         bool isInst = _isInstance(instanceId);
         uint256 templateId = isInst ? _templateIdOf(instanceId) : 0;

@@ -56,9 +56,16 @@ contract SpendingLimitPolicy is
     address public immutable agentNFA;
 
     // ─── Selectors ───
-    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739;
-    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5;
+    bytes4 private constant SWAP_EXACT_TOKENS = 0x38ed1739; // swapExactTokensForTokens
+    bytes4 private constant SWAP_TOKENS_EXACT = 0x8803dbee; // swapTokensForExactTokens
+    bytes4 private constant SWAP_TOKENS_EXACT_ETH = 0x4a25d94a; // swapTokensForExactETH
+    bytes4 private constant SWAP_EXACT_TOKENS_ETH = 0x791ac947; // swapExactTokensForETHSupportingFeeOnTransferTokens
+    bytes4 private constant SWAP_EXACT_TOKENS_FEE = 0x5c11d795; // swapExactTokensForTokensSupportingFeeOnTransferTokens
+    bytes4 private constant SWAP_EXACT_ETH = 0x7ff36ab5; // swapExactETHForTokens
+    bytes4 private constant SWAP_EXACT_ETH_FEE = 0xb6f9de95; // swapExactETHForTokensSupportingFeeOnTransferTokens
     bytes4 private constant APPROVE = 0x095ea7b3;
+    bytes4 private constant INCREASE_ALLOWANCE = 0x39509351; // increaseAllowance(address,uint256)
+    bytes4 private constant DECREASE_ALLOWANCE = 0xa457c2d7; // decreaseAllowance(address,uint256)
     bytes4 private constant TRANSFER = 0xa9059cbb;
     bytes4 private constant TRANSFER_FROM = 0x23b872dd;
 
@@ -248,8 +255,13 @@ contract SpendingLimitPolicy is
             return (false, "Direct ERC20 transfer blocked");
         }
 
-        // approve(address spender, uint256 amount) must be strictly controlled.
-        if (selector == APPROVE) {
+        // All allowance mutators must be strictly controlled.
+        // increaseAllowance/decreaseAllowance share the same (address, uint256) layout as approve.
+        if (
+            selector == APPROVE ||
+            selector == INCREASE_ALLOWANCE ||
+            selector == DECREASE_ALLOWANCE
+        ) {
             (address spender, uint256 amount) = CalldataDecoder.decodeApprove(
                 callData
             );
@@ -268,13 +280,22 @@ contract SpendingLimitPolicy is
             }
         }
 
-        // SECURITY WARNING (H-2): Fail-open by design — no limits configured = no spending cap.
-        // Deployer MUST configure limits per-instance after setup.
-        // Native value spending is tracked here; ERC20 direct outflow paths are blocked above.
-        if (limits.maxPerTx == 0 && limits.maxPerDay == 0) return (true, "");
+        // V-002 fix: Compute effective spend including ERC20 amountIn from swap calldata.
+        // Group A swaps encode amountIn in calldata (value=0); Group B swaps use msg.value.
+        uint256 spend = _effectiveSpend(selector, callData, value);
+
+        // H-3 fix: Fail-close — unconfigured limits reject all value/spend transfers.
+        // Previously fail-open, which allowed native currency drain via empty-calldata calls.
+        if (limits.maxPerTx == 0 && limits.maxPerDay == 0) {
+            // Zero-value calls (e.g. approve, view) still pass; only block value transfers.
+            if (spend > 0) {
+                return (false, "Spending limits not configured");
+            }
+            return (true, "");
+        }
 
         // Per-tx limit
-        if (limits.maxPerTx > 0 && value > limits.maxPerTx) {
+        if (limits.maxPerTx > 0 && spend > limits.maxPerTx) {
             return (false, "Exceeds per-tx limit");
         }
 
@@ -283,7 +304,7 @@ contract SpendingLimitPolicy is
             DailyTracking storage dt = dailyTracking[instanceId];
             uint32 today = uint32(block.timestamp / 86400);
             uint256 spent = (dt.dayIndex == today) ? dt.spentToday : 0;
-            if (spent + value > limits.maxPerDay) {
+            if (spent + spend > limits.maxPerDay) {
                 return (false, "Daily limit reached");
             }
         }
@@ -313,21 +334,24 @@ contract SpendingLimitPolicy is
     function onCommit(
         uint256 instanceId,
         address,
-        bytes4,
-        bytes calldata,
+        bytes4 selector,
+        bytes calldata callData,
         uint256 value
     ) external override {
         if (msg.sender != guard) revert OnlyGuard();
+
+        // V-002 fix: track effective spend (native + ERC20 amountIn)
+        uint256 spend = _effectiveSpend(selector, callData, value);
 
         DailyTracking storage dt = dailyTracking[instanceId];
         uint32 today = uint32(block.timestamp / 86400);
 
         // Reset on new day
         if (dt.dayIndex != today) {
-            dt.spentToday = value;
+            dt.spentToday = spend;
             dt.dayIndex = today;
         } else {
-            dt.spentToday += value;
+            dt.spentToday += spend;
         }
 
         emit DailySpendUpdated(instanceId, dt.spentToday, today);
@@ -349,6 +373,33 @@ contract SpendingLimitPolicy is
     // ═══════════════════════════════════════════════════════
     //                    INTERNALS
     // ═══════════════════════════════════════════════════════
+
+    /// @notice V-002 fix: Extract effective spend amount from swap calldata or native value.
+    /// @dev Group A swaps (5-param): amountIn is first param in calldata, value=0.
+    ///      Group B swaps (4-param): value IS the amountIn (ETH input).
+    ///      Non-swap calls: use native value only.
+    function _effectiveSpend(
+        bytes4 selector,
+        bytes calldata callData,
+        uint256 value
+    ) internal pure returns (uint256) {
+        // Group A: ERC20-input swaps — amountIn encoded in calldata
+        if (
+            selector == SWAP_EXACT_TOKENS ||
+            selector == SWAP_TOKENS_EXACT ||
+            selector == SWAP_TOKENS_EXACT_ETH ||
+            selector == SWAP_EXACT_TOKENS_ETH ||
+            selector == SWAP_EXACT_TOKENS_FEE
+        ) {
+            (uint256 amountIn, , , , ) = CalldataDecoder.decodeSwap(callData);
+            // Use the larger of native value and ERC20 amountIn
+            return amountIn > value ? amountIn : value;
+        }
+
+        // Group B: ETH-input swaps — value is the input amount (already captured)
+        // Non-swap calls: value is the spend
+        return value;
+    }
 
     function _checkRenterOrOwner(uint256 instanceId) internal view {
         if (msg.sender == Ownable(guard).owner()) return;
