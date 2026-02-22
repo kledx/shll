@@ -827,6 +827,105 @@ contract OperatorPermitTest is Test {
         assertTrue(ok, "decreaseAllowance to approved spender should always pass");
     }
 
+    // ═══════════════════════════════════════════════════════
+    //    Transfer clears rental + operator state (ERC-4907)
+    // ═══════════════════════════════════════════════════════
+
+    /// @notice Transfer must clear ERC-4907 renter to prevent stale access.
+    function test_transfer_clears_renter() public {
+        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
+        nfa.setUser(tokenId, renter, leaseExpiry);
+        assertEq(nfa.userOf(tokenId), renter);
+
+        // Owner transfers NFT to a new address
+        address newOwner = address(0xAE01);
+        address currentOwner = nfa.ownerOf(tokenId);
+        vm.prank(currentOwner);
+        nfa.transferFrom(currentOwner, newOwner, tokenId);
+
+        // Renter must be cleared
+        assertEq(nfa.userOf(tokenId), address(0));
+        assertEq(nfa.userExpires(tokenId), 0);
+    }
+
+    /// @notice Transfer must clear operator authorization.
+    function test_transfer_clears_operator() public {
+        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
+        nfa.setUser(tokenId, renter, leaseExpiry);
+
+        AgentNFA.OperatorPermit memory permit = _buildPermit(
+            leaseExpiry,
+            nfa.operatorNonceOf(tokenId),
+            block.timestamp + 10 minutes
+        );
+        bytes memory sig = _signPermit(renterPk, permit);
+        vm.prank(operator);
+        nfa.setOperatorWithSig(permit, sig);
+        assertEq(nfa.operatorOf(tokenId), operator);
+
+        // Transfer
+        address newOwner = address(0xAE02);
+        address currentOwner = nfa.ownerOf(tokenId);
+        vm.prank(currentOwner);
+        nfa.transferFrom(currentOwner, newOwner, tokenId);
+
+        // Operator must be cleared
+        assertEq(nfa.operatorOf(tokenId), address(0));
+    }
+
+    /// @notice After transfer, old renter cannot execute.
+    function test_transfer_oldRenter_cannot_execute() public {
+        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
+        nfa.setUser(tokenId, renter, leaseExpiry);
+
+        // Transfer
+        address newOwner = address(0xAE03);
+        address currentOwner = nfa.ownerOf(tokenId);
+        vm.prank(currentOwner);
+        nfa.transferFrom(currentOwner, newOwner, tokenId);
+
+        // Old renter tries to execute — must fail
+        Action memory action = Action(
+            address(target),
+            0,
+            abi.encodeWithSelector(target.ping.selector)
+        );
+        vm.prank(renter);
+        vm.expectRevert(Errors.Unauthorized.selector);
+        nfa.execute(tokenId, action);
+    }
+
+    /// @notice After transfer, old operator cannot execute.
+    function test_transfer_oldOperator_cannot_execute() public {
+        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
+        nfa.setUser(tokenId, renter, leaseExpiry);
+
+        AgentNFA.OperatorPermit memory permit = _buildPermit(
+            leaseExpiry,
+            nfa.operatorNonceOf(tokenId),
+            block.timestamp + 10 minutes
+        );
+        bytes memory sig = _signPermit(renterPk, permit);
+        vm.prank(operator);
+        nfa.setOperatorWithSig(permit, sig);
+
+        // Transfer
+        address newOwner = address(0xAE04);
+        address currentOwner = nfa.ownerOf(tokenId);
+        vm.prank(currentOwner);
+        nfa.transferFrom(currentOwner, newOwner, tokenId);
+
+        // Old operator tries to execute — must fail
+        Action memory action = Action(
+            address(target),
+            0,
+            abi.encodeWithSelector(target.ping.selector)
+        );
+        vm.prank(operator);
+        vm.expectRevert(Errors.Unauthorized.selector);
+        nfa.execute(tokenId, action);
+    }
+
     /// @notice Helper: read instanceTemplate mapping
     function instanceTemplate(uint256 id) internal view returns (bytes32) {
         return spendingLimit.instanceTemplate(id);
