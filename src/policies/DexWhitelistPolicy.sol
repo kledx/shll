@@ -97,9 +97,15 @@ contract DexWhitelistPolicy is IPolicy {
         bytes calldata data,
         uint256
     ) external view override returns (bool ok, string memory reason) {
-        // approve(address spender, uint256 amount): enforce spender, not token contract.
+        // approve/increaseAllowance/decreaseAllowance: enforce spender, not token contract.
+        // All three share (address, uint256) layout — spender is at calldata offset [16:36].
         address candidate = target;
-        if (selector == bytes4(0x095ea7b3) && data.length >= 36) {
+        if (
+            (selector == bytes4(0x095ea7b3) ||  // approve
+             selector == bytes4(0x39509351) ||  // increaseAllowance
+             selector == bytes4(0xa457c2d7))    // decreaseAllowance
+            && data.length >= 36
+        ) {
             candidate = address(bytes20(data[16:36]));
         }
 

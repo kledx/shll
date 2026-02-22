@@ -64,7 +64,13 @@ contract ReceiverGuardPolicy is IPolicy {
         ) {
             (, , recipient, ) = CalldataDecoder.decodeSwapETH(callData);
         } else {
-            // Non-swap actions pass through
+            // Non-swap actions: if carrying native value, must target vault.
+            // Prevents sending ETH to arbitrary contracts via non-swap function calls.
+            if (value > 0) {
+                if (target != IAgentNFAView(agentNFA).accountOf(instanceId)) {
+                    return (false, "Value transfer must target vault");
+                }
+            }
             return (true, "");
         }
 

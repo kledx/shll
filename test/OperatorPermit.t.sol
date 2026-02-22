@@ -678,6 +678,155 @@ contract OperatorPermitTest is Test {
         assertTrue(ok, "increaseAllowance within limit to approved spender should pass");
     }
 
+    // ═══════════════════════════════════════════════════════
+    //    Review fixes: permit, exact-output swap, value guard
+    // ═══════════════════════════════════════════════════════
+
+    /// @notice ERC-2612 permit must be blocked unconditionally.
+    function test_permit_erc2612_blocked() public {
+        bytes memory callData = abi.encodeWithSelector(
+            bytes4(0xd505accf), // permit(address,address,uint256,uint256,uint8,bytes32,bytes32)
+            address(0x1111), // owner
+            address(0x2222), // spender
+            100 ether,       // value
+            block.timestamp + 1 hours, // deadline
+            uint8(27),       // v
+            bytes32(0),      // r
+            bytes32(0)       // s
+        );
+        (bool ok, string memory reason) = spendingLimit.check(
+            tokenId, renter, address(0x70CE),
+            bytes4(0xd505accf), callData, 0
+        );
+        assertFalse(ok, "ERC-2612 permit must be blocked");
+        assertEq(reason, "Permit not allowed");
+    }
+
+    /// @notice DAI-style permit must be blocked unconditionally.
+    function test_permit_dai_blocked() public {
+        bytes memory callData = abi.encodeWithSelector(
+            bytes4(0x8fcbaf0c), // DAI permit
+            address(0x1111),
+            address(0x2222),
+            uint256(0),  // nonce
+            uint256(block.timestamp + 1 hours),
+            true,        // allowed
+            uint8(27),
+            bytes32(0),
+            bytes32(0)
+        );
+        (bool ok, string memory reason) = spendingLimit.check(
+            tokenId, renter, address(0x70CE),
+            bytes4(0x8fcbaf0c), callData, 0
+        );
+        assertFalse(ok, "DAI permit must be blocked");
+        assertEq(reason, "Permit not allowed");
+    }
+
+    /// @notice swapTokensForExactTokens: spend must use amountInMax (param[1]), not amountOut (param[0]).
+    function test_spendingLimit_exactOutputSwap_usesAmountInMax() public {
+        bytes32 tid = instanceTemplate(tokenId);
+        spendingLimit.setTemplateCeiling(tid, 5 ether, 100 ether, 0);
+        spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
+        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        vm.prank(renter);
+        spendingLimit.setLimits(tokenId, 5 ether, 100 ether, 0);
+
+        address[] memory path = new address[](2);
+        path[0] = address(0xAAA1);
+        path[1] = address(0xAAA2);
+
+        // swapTokensForExactTokens(amountOut=1 ether, amountInMax=10 ether, ...)
+        // amountInMax (10 ether) > maxPerTx (5 ether) → must be blocked
+        bytes memory swapData = abi.encodeWithSelector(
+            bytes4(0x8803dbee), // swapTokensForExactTokens
+            1 ether,            // amountOut (small)
+            10 ether,           // amountInMax (large — this is the real spend ceiling)
+            path,
+            account,
+            block.timestamp + 300
+        );
+
+        (bool ok, string memory reason) = spendingLimit.check(
+            tokenId, renter, address(0xBBBB),
+            bytes4(0x8803dbee), swapData, 0
+        );
+        assertFalse(ok, "Exact-output swap must use amountInMax for spend check");
+        assertEq(reason, "Exceeds per-tx limit");
+    }
+
+    /// @notice swapTokensForExactTokens within amountInMax limit should pass.
+    function test_spendingLimit_exactOutputSwap_withinLimit_passes() public {
+        bytes32 tid = instanceTemplate(tokenId);
+        spendingLimit.setTemplateCeiling(tid, 10 ether, 100 ether, 0);
+        spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
+        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        vm.prank(renter);
+        spendingLimit.setLimits(tokenId, 10 ether, 100 ether, 0);
+
+        address[] memory path = new address[](2);
+        path[0] = address(0xAAA1);
+        path[1] = address(0xAAA2);
+
+        // amountInMax (3 ether) <= maxPerTx (10 ether)
+        bytes memory swapData = abi.encodeWithSelector(
+            bytes4(0x8803dbee),
+            1 ether,  // amountOut
+            3 ether,  // amountInMax
+            path,
+            account,
+            block.timestamp + 300
+        );
+
+        (bool ok, ) = spendingLimit.check(
+            tokenId, renter, address(0xBBBB),
+            bytes4(0x8803dbee), swapData, 0
+        );
+        assertTrue(ok, "Exact-output swap within amountInMax limit should pass");
+    }
+
+    /// @notice ReceiverGuard: non-swap call with value > 0 to non-vault must be blocked.
+    function test_receiverGuard_nonSwapValue_nonVault_blocked() public {
+        address randomTarget = address(0xF00D);
+        (bool ok, string memory reason) = receiverGuard.check(
+            tokenId, renter, randomTarget,
+            bytes4(0x12345678), // arbitrary non-swap selector
+            abi.encodeWithSelector(bytes4(0x12345678)),
+            1 ether
+        );
+        assertFalse(ok, "Non-swap value transfer to non-vault must be blocked");
+        assertEq(reason, "Value transfer must target vault");
+    }
+
+    /// @notice ReceiverGuard: non-swap call with value > 0 to vault should pass.
+    function test_receiverGuard_nonSwapValue_toVault_passes() public {
+        (bool ok, ) = receiverGuard.check(
+            tokenId, renter, account, // vault
+            bytes4(0x12345678),
+            abi.encodeWithSelector(bytes4(0x12345678)),
+            1 ether
+        );
+        assertTrue(ok, "Non-swap value transfer to vault should pass");
+    }
+
+    /// @notice decreaseAllowance to approved spender should pass without amount checks.
+    function test_decreaseAllowance_approvedSpender_passes() public {
+        address router = address(0xCACA);
+        spendingLimit.setApprovedSpender(router, true);
+
+        // decreaseAllowance with a huge amount — should still pass (safe operation)
+        bytes memory callData = abi.encodeWithSelector(
+            bytes4(0xa457c2d7),
+            router,
+            type(uint256).max // max amount OK for decrease
+        );
+        (bool ok, ) = spendingLimit.check(
+            tokenId, renter, address(0x70CE),
+            bytes4(0xa457c2d7), callData, 0
+        );
+        assertTrue(ok, "decreaseAllowance to approved spender should always pass");
+    }
+
     /// @notice Helper: read instanceTemplate mapping
     function instanceTemplate(uint256 id) internal view returns (bytes32) {
         return spendingLimit.instanceTemplate(id);

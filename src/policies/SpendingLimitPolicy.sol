@@ -66,6 +66,8 @@ contract SpendingLimitPolicy is
     bytes4 private constant APPROVE = 0x095ea7b3;
     bytes4 private constant INCREASE_ALLOWANCE = 0x39509351; // increaseAllowance(address,uint256)
     bytes4 private constant DECREASE_ALLOWANCE = 0xa457c2d7; // decreaseAllowance(address,uint256)
+    bytes4 private constant PERMIT = 0xd505accf;   // ERC-2612 permit(address,address,uint256,uint256,uint8,bytes32,bytes32)
+    bytes4 private constant DAI_PERMIT = 0x8fcbaf0c; // DAI permit(address,address,uint256,uint256,bool,uint8,bytes32,bytes32)
     bytes4 private constant TRANSFER = 0xa9059cbb;
     bytes4 private constant TRANSFER_FROM = 0x23b872dd;
 
@@ -255,13 +257,25 @@ contract SpendingLimitPolicy is
             return (false, "Direct ERC20 transfer blocked");
         }
 
-        // All allowance mutators must be strictly controlled.
-        // increaseAllowance/decreaseAllowance share the same (address, uint256) layout as approve.
-        if (
-            selector == APPROVE ||
-            selector == INCREASE_ALLOWANCE ||
-            selector == DECREASE_ALLOWANCE
-        ) {
+        // Block all permit variants — vault should never need gasless approvals.
+        // ERC-2612 permit and DAI-style permit both allow setting arbitrary allowances
+        // via off-chain signatures, bypassing approve controls entirely.
+        if (selector == PERMIT || selector == DAI_PERMIT) {
+            return (false, "Permit not allowed");
+        }
+
+        // decreaseAllowance is a safe operation (reduces exposure), only require approved spender.
+        if (selector == DECREASE_ALLOWANCE) {
+            (address spender, ) = CalldataDecoder.decodeApprove(callData);
+            if (!approvedSpender[spender]) {
+                return (false, "Approve spender not allowed");
+            }
+            // No amount checks — decreasing allowance is always safe.
+            return (true, "");
+        }
+
+        // approve and increaseAllowance must be strictly controlled.
+        if (selector == APPROVE || selector == INCREASE_ALLOWANCE) {
             (address spender, uint256 amount) = CalldataDecoder.decodeApprove(
                 callData
             );
@@ -375,25 +389,35 @@ contract SpendingLimitPolicy is
     // ═══════════════════════════════════════════════════════
 
     /// @notice V-002 fix: Extract effective spend amount from swap calldata or native value.
-    /// @dev Group A swaps (5-param): amountIn is first param in calldata, value=0.
-    ///      Group B swaps (4-param): value IS the amountIn (ETH input).
+    /// @dev Group A-exact-input (3 selectors): param[0] = amountIn.
+    ///      Group A-exact-output (2 selectors): param[0] = amountOut, param[1] = amountInMax.
+    ///      Group B swaps (2 selectors): value IS the amountIn (ETH input).
     ///      Non-swap calls: use native value only.
     function _effectiveSpend(
         bytes4 selector,
         bytes calldata callData,
         uint256 value
     ) internal pure returns (uint256) {
-        // Group A: ERC20-input swaps — amountIn encoded in calldata
+        // Group A exact-input: amountIn is first param
         if (
             selector == SWAP_EXACT_TOKENS ||
-            selector == SWAP_TOKENS_EXACT ||
-            selector == SWAP_TOKENS_EXACT_ETH ||
             selector == SWAP_EXACT_TOKENS_ETH ||
             selector == SWAP_EXACT_TOKENS_FEE
         ) {
             (uint256 amountIn, , , , ) = CalldataDecoder.decodeSwap(callData);
-            // Use the larger of native value and ERC20 amountIn
             return amountIn > value ? amountIn : value;
+        }
+
+        // Group A exact-output: first param is amountOut, second is amountInMax
+        // For swapTokensForExactTokens / swapTokensForExactETH the ABI is:
+        //   (uint256 amountOut, uint256 amountInMax, address[] path, address to, uint256 deadline)
+        // We must use amountInMax (param[1]) as the effective spend ceiling.
+        if (
+            selector == SWAP_TOKENS_EXACT ||
+            selector == SWAP_TOKENS_EXACT_ETH
+        ) {
+            (, uint256 amountInMax, , , ) = CalldataDecoder.decodeSwap(callData);
+            return amountInMax > value ? amountInMax : value;
         }
 
         // Group B: ETH-input swaps — value is the input amount (already captured)
