@@ -870,35 +870,6 @@ contract AgentNFA is
     }
 
     // ─── ERC721 overrides (OZ v4 requires these) ───
-
-    /// @dev ERC-4907 compliant: clear rental state + operator on transfer/burn.
-    ///      Prevents stale renter/operator from retaining vault access after ownership change.
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 firstTokenId,
-        uint256 batchSize
-    ) internal override {
-        super._beforeTokenTransfer(from, to, firstTokenId, batchSize);
-
-        // Skip on mint (from == 0) and self-transfer
-        if (from != address(0) && from != to) {
-            // Clear ERC-4907 renter
-            if (_users[firstTokenId] != address(0)) {
-                delete _users[firstTokenId];
-                delete _userExpires[firstTokenId];
-                emit UpdateUser(firstTokenId, address(0), 0);
-            }
-            // Clear operator authorization
-            if (_operators[firstTokenId] != address(0)) {
-                delete _operators[firstTokenId];
-                delete _operatorExpires[firstTokenId];
-                emit OperatorCleared(firstTokenId, from);
-                emit OperatorSet(firstTokenId, address(0), 0);
-            }
-        }
-    }
-
     function _burn(
         uint256 tokenId
     ) internal override(ERC721, ERC721URIStorage) {
