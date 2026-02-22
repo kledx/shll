@@ -377,25 +377,14 @@ contract AgentNFA is
     //                    ERC-4907 (RENTAL)
     // ═══════════════════════════════════════════════════════════
 
-    /// @notice Set the user (renter) for an NFA — only callable by ListingManager
+    /// @notice Classic rental disabled — use mintInstanceFromTemplate for Rent-to-Mint
+    /// @dev Kept for IERC4907 interface compliance; always reverts.
     function setUser(
-        uint256 tokenId,
-        address user,
-        uint64 expires
-    ) external override(IERC4907) {
-        // Only ListingManager or owner can set user
-        if (msg.sender != listingManager && msg.sender != owner()) {
-            revert Errors.OnlyListingManager();
-        }
-        _requireMinted(tokenId);
-        // Clear stale operator from previous renter
-        if (_operators[tokenId] != address(0)) {
-            _setOperator(tokenId, address(0), 0);
-        }
-        _users[tokenId] = user;
-        _userExpires[tokenId] = expires;
-        emit UpdateUser(tokenId, user, expires);
-        emit LeaseSet(tokenId, user, expires);
+        uint256,
+        address,
+        uint64
+    ) external pure override(IERC4907) {
+        revert Errors.Unauthorized();
     }
 
     /// @notice Get current user (returns address(0) if expired)

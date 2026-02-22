@@ -28,6 +28,9 @@ contract OperatorPermitTest is Test {
 
     uint256 internal tokenId;
     address internal account;
+    uint256 internal templateId;
+    address internal fakeListingManager = address(0xAE11);
+    uint64 internal leaseExpiry;
 
     uint256 internal renterPk = 0xA11CE;
     uint256 internal otherPk = 0xB0B;
@@ -57,15 +60,20 @@ contract OperatorPermitTest is Test {
         // H-1 fix: commit() no longer uses try-catch, so guard must know about NFA
         guard.setAgentNFA(address(nfa));
 
-        tokenId = nfa.mintAgent(
-            address(0xABCD),
+        // Set up fake ListingManager for Rent-to-Mint
+        nfa.setListingManager(fakeListingManager);
+        guard.setListingManager(fakeListingManager);
+
+        // Create a template agent (mint to this test contract so we can registerTemplate)
+        templateId = nfa.mintAgent(
+            address(this),
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes32("default"),
-            bytes32(0), // agentType (V3.0)
+            keccak256("llm_trader"), // agentType required for template
             "ipfs://agent",
             _emptyMetadata()
         );
-        account = nfa.accountOf(tokenId);
+        nfa.registerTemplate(templateId, TEMPLATE_KEY);
 
         // Bind standalone token to a non-empty template policy set so renter/operator
         // execution follows PolicyGuard fail-close semantics.
@@ -75,15 +83,35 @@ contract OperatorPermitTest is Test {
         guard.addTemplatePolicy(TEMPLATE_KEY, address(dexWL));
         guard.addTemplatePolicy(TEMPLATE_KEY, address(receiverGuard));
         guard.addTemplatePolicy(TEMPLATE_KEY, address(spendingLimit));
-        guard.bindInstance(tokenId, TEMPLATE_KEY);
+
+        // Mint instance via Rent-to-Mint (renter = owner)
+        leaseExpiry = uint64(block.timestamp + 1 days);
+        tokenId = _mintInstance(renter, leaseExpiry);
+        account = nfa.accountOf(tokenId);
 
         // Configure DEX whitelist so fail-close policy doesn't block test execution
         dexWL.addDex(tokenId, address(target));
     }
 
+    /// @dev Mint an instance via Rent-to-Mint flow (renter = owner of instance)
+    function _mintInstance(
+        address to,
+        uint64 expires
+    ) internal returns (uint256 instanceId) {
+        vm.prank(fakeListingManager);
+        instanceId = nfa.mintInstanceFromTemplate(
+            to,
+            templateId,
+            expires,
+            ""
+        );
+        // Bind instance policies
+        vm.prank(fakeListingManager);
+        guard.bindInstance(instanceId, TEMPLATE_KEY);
+    }
+
     function test_setOperatorWithSig_success() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -100,8 +128,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_setOperatorWithSig_reverts_if_deadline_expired() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -116,8 +143,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_setOperatorWithSig_reverts_if_nonce_replayed() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -135,8 +161,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_setOperatorWithSig_reverts_if_signer_not_renter() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -151,8 +176,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_setOperatorWithSig_reverts_if_expires_exceeds_lease() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             uint64(leaseExpiry + 1),
@@ -169,8 +193,7 @@ contract OperatorPermitTest is Test {
     function test_setOperatorWithSig_reverts_if_submitter_not_operator()
         public
     {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -185,8 +208,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_operator_can_execute_during_lease() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -208,8 +230,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_operator_cannot_execute_after_operator_expires() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         uint64 opExpiry = uint64(block.timestamp + 1 hours);
         AgentNFA.OperatorPermit memory permit = _buildPermit(
@@ -235,8 +256,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_operator_cannot_execute_after_lease_expires() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -261,8 +281,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_operator_cannot_withdraw_native() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -282,8 +301,7 @@ contract OperatorPermitTest is Test {
     }
 
     function test_clearOperator_clears_authorization() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         AgentNFA.OperatorPermit memory permit = _buildPermit(
             leaseExpiry,
@@ -308,8 +326,7 @@ contract OperatorPermitTest is Test {
     /// @notice H-3 PoC: operator sends execute(target=attacker, value=balance, data="")
     ///         ReceiverGuardPolicy MUST block this (target != vault).
     function test_attack_operator_native_drain_blocked_by_receiverGuard() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         // Set operator
         AgentNFA.OperatorPermit memory permit = _buildPermit(
@@ -339,8 +356,7 @@ contract OperatorPermitTest is Test {
 
     /// @notice H-3 variant: renter themselves cannot drain via empty calldata either.
     function test_attack_renter_native_drain_blocked() public {
-        uint64 leaseExpiry = uint64(block.timestamp + 1 days);
-        nfa.setUser(tokenId, renter, leaseExpiry);
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
 
         vm.deal(account, 3 ether);
 
@@ -435,10 +451,7 @@ contract OperatorPermitTest is Test {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 1 ether, 10 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
-        vm.prank(guard.owner());
-        // initInstance already called in setUp via bindInstance, so set limits directly
-        // We need to simulate renter setting limits
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setLimits(tokenId, 1 ether, 10 ether, 0);
 
@@ -472,7 +485,7 @@ contract OperatorPermitTest is Test {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 2 ether, 10 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setLimits(tokenId, 2 ether, 10 ether, 0);
 
@@ -504,7 +517,7 @@ contract OperatorPermitTest is Test {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 5 ether, 8 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setLimits(tokenId, 5 ether, 8 ether, 0);
 
@@ -555,7 +568,7 @@ contract OperatorPermitTest is Test {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 1 ether, 10 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setLimits(tokenId, 1 ether, 10 ether, 0);
 
@@ -625,7 +638,7 @@ contract OperatorPermitTest is Test {
         address router = address(0xCACA);
         spendingLimit.setApprovedSpender(router, true);
 
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setApproveLimit(tokenId, 2 ether);
 
@@ -665,7 +678,7 @@ contract OperatorPermitTest is Test {
         address router = address(0xCACA);
         spendingLimit.setApprovedSpender(router, true);
 
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setApproveLimit(tokenId, 3 ether);
 
@@ -732,7 +745,7 @@ contract OperatorPermitTest is Test {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 5 ether, 100 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setLimits(tokenId, 5 ether, 100 ether, 0);
 
@@ -764,7 +777,7 @@ contract OperatorPermitTest is Test {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 10 ether, 100 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 10 ether);
-        nfa.setUser(tokenId, renter, uint64(block.timestamp + 1 days));
+        // renter + leaseExpiry already set via Rent-to-Mint in setUp
         vm.prank(renter);
         spendingLimit.setLimits(tokenId, 10 ether, 100 ether, 0);
 
