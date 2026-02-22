@@ -49,6 +49,9 @@ contract ListingManager is Ownable2Step, ReentrancyGuard {
     /// @notice policy guard for instance binding
     address public policyGuard;
 
+    /// @notice V-001 fix: only the trusted AgentNFA can be listed
+    address public agentNFA;
+
     event TemplateListingCreated(
         bytes32 indexed listingId,
         address indexed nfa,
@@ -82,6 +85,12 @@ contract ListingManager is Ownable2Step, ReentrancyGuard {
         policyGuard = _policyGuard;
     }
 
+    /// @notice V-001 fix: set the trusted AgentNFA address
+    function setAgentNFA(address _nfa) external onlyOwner {
+        if (_nfa == address(0)) revert Errors.ZeroAddress();
+        agentNFA = _nfa;
+    }
+
     /// @notice Creates a template listing used by rent-to-mint
     function createTemplateListing(
         address nfa,
@@ -89,6 +98,8 @@ contract ListingManager is Ownable2Step, ReentrancyGuard {
         uint96 pricePerDay,
         uint32 minDays
     ) external returns (bytes32 listingId) {
+        // V-001 fix: only the trusted AgentNFA can be listed
+        if (nfa != agentNFA) revert Errors.Unauthorized();
         if (IERC721(nfa).ownerOf(tokenId) != msg.sender)
             revert Errors.NotListingOwner();
         if (!IAgentNFA(nfa).isTemplate(tokenId))

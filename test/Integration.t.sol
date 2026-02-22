@@ -112,6 +112,7 @@ contract IntegrationTest is Test {
         guard.setAgentNFA(address(nfa));
         guard.setListingManager(address(listing));
         listing.setPolicyGuard(address(guard));
+        listing.setAgentNFA(address(nfa));
 
         // Mint an agent with BAP-578 metadata
         tokenId = nfa.mintAgent(
