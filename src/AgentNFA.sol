@@ -682,6 +682,8 @@ contract AgentNFA is
         // SECURITY: prevent template owner from changing policy after registration
         // This protects all instances that inherited this template's policy
         if (_isTemplate[tokenId]) revert Errors.AlreadyTemplate(tokenId);
+        // L-1 fix: instances inherit template policy, must not be changed
+        if (_isInstance[tokenId]) revert Errors.Unauthorized();
         bytes32 oldPolicyId = _policyIdOf[tokenId];
         _policyIdOf[tokenId] = newPolicyId;
         emit PolicyUpdated(tokenId, oldPolicyId, newPolicyId);
@@ -780,8 +782,10 @@ contract AgentNFA is
         if (!success) revert Errors.ExecutionFailed();
 
         // V1.4 + M-NEW-2 fix: Post-execution state update via typed call
+        // H-1 fix: removed try-catch — commit failure must revert execution
+        // to prevent gas-manipulation bypass of spending limits and cooldown.
         if (policyGuard != address(0)) {
-            try IPolicyGuard(policyGuard).commit(tokenId, action) {} catch {}
+            IPolicyGuard(policyGuard).commit(tokenId, action);
         }
 
         _lastActionTimestamp[tokenId] = block.timestamp;

@@ -207,10 +207,15 @@ contract SpendingLimitPolicy is
         );
 
         // Validate against ceiling
-        if (ceiling.maxPerTx > 0 && maxPerTx > ceiling.maxPerTx)
-            revert ExceedsCeiling("maxPerTx");
-        if (ceiling.maxPerDay > 0 && maxPerDay > ceiling.maxPerDay)
-            revert ExceedsCeiling("maxPerDay");
+        // M-1 fix: disallow zero when ceiling is configured (zero disables the check)
+        if (ceiling.maxPerTx > 0) {
+            if (maxPerTx == 0 || maxPerTx > ceiling.maxPerTx)
+                revert ExceedsCeiling("maxPerTx");
+        }
+        if (ceiling.maxPerDay > 0) {
+            if (maxPerDay == 0 || maxPerDay > ceiling.maxPerDay)
+                revert ExceedsCeiling("maxPerDay");
+        }
         if (
             ceiling.maxSlippageBps > 0 &&
             maxSlippageBps > ceiling.maxSlippageBps
@@ -274,8 +279,15 @@ contract SpendingLimitPolicy is
             return (true, "");
         }
 
-        // approve and increaseAllowance must be strictly controlled.
-        if (selector == APPROVE || selector == INCREASE_ALLOWANCE) {
+        // H-2 fix: block increaseAllowance — repeated calls accumulate allowance
+        // beyond instanceApproveLimit since each call only checks the increment.
+        // Only approve (which sets absolute value) is permitted.
+        if (selector == INCREASE_ALLOWANCE) {
+            return (false, "Use approve instead of increaseAllowance");
+        }
+
+        // approve must be strictly controlled.
+        if (selector == APPROVE) {
             (address spender, uint256 amount) = CalldataDecoder.decodeApprove(
                 callData
             );

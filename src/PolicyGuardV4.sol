@@ -90,6 +90,7 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
     error OnlyListingManager();
     error EmptyTemplateId();
     error EmptyTemplatePolicies(bytes32 templateId);
+    error ZeroAddress();
 
     // ═══════════════════════════════════════════════════════
     //                       CONSTRUCTOR
@@ -103,11 +104,13 @@ contract PolicyGuardV4 is IPolicyGuard, Ownable2Step {
 
     /// @notice Set the AgentNFA contract address (for validate/commit calls)
     function setAgentNFA(address _nfa) external onlyOwner {
+        if (_nfa == address(0)) revert ZeroAddress();
         agentNFA = _nfa;
     }
 
     /// @notice Set the ListingManager address (for bindInstance calls)
     function setListingManager(address _lm) external onlyOwner {
+        if (_lm == address(0)) revert ZeroAddress();
         listingManager = _lm;
     }
 

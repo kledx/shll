@@ -54,6 +54,9 @@ contract OperatorPermitTest is Test {
         receiverGuard = new ReceiverGuardPolicy(address(nfa));
         spendingLimit = new SpendingLimitPolicy(address(guard), address(nfa));
 
+        // H-1 fix: commit() no longer uses try-catch, so guard must know about NFA
+        guard.setAgentNFA(address(nfa));
+
         tokenId = nfa.mintAgent(
             address(0xABCD),
             // forge-lint: disable-next-line(unsafe-typecast)
@@ -581,7 +584,7 @@ contract OperatorPermitTest is Test {
     //    Allowance mutator bypass: increaseAllowance / decreaseAllowance
     // ═══════════════════════════════════════════════════════
 
-    /// @notice PoC: increaseAllowance to unapproved spender must be blocked.
+    /// @notice H-2 fix: increaseAllowance is now unconditionally blocked.
     function test_increaseAllowance_unapprovedSpender_blocked() public {
         bytes memory callData = abi.encodeWithSelector(
             bytes4(0x39509351), // increaseAllowance(address,uint256)
@@ -592,11 +595,11 @@ contract OperatorPermitTest is Test {
             tokenId, renter, address(0x70CE),
             bytes4(0x39509351), callData, 0
         );
-        assertFalse(ok, "increaseAllowance to unapproved spender must be blocked");
-        assertEq(reason, "Approve spender not allowed");
+        assertFalse(ok, "increaseAllowance must be blocked unconditionally");
+        assertEq(reason, "Use approve instead of increaseAllowance");
     }
 
-    /// @notice PoC: increaseAllowance with max uint256 must be blocked.
+    /// @notice H-2 fix: increaseAllowance blocked regardless of amount.
     function test_increaseAllowance_infinite_blocked() public {
         address router = address(0xCACA);
         spendingLimit.setApprovedSpender(router, true);
@@ -610,11 +613,11 @@ contract OperatorPermitTest is Test {
             tokenId, renter, address(0x70CE),
             bytes4(0x39509351), callData, 0
         );
-        assertFalse(ok, "Infinite increaseAllowance must be blocked");
-        assertEq(reason, "Infinite approval not allowed");
+        assertFalse(ok, "increaseAllowance must be blocked unconditionally");
+        assertEq(reason, "Use approve instead of increaseAllowance");
     }
 
-    /// @notice PoC: increaseAllowance exceeding approve limit must be blocked.
+    /// @notice H-2 fix: increaseAllowance blocked even within limits.
     function test_increaseAllowance_exceedsLimit_blocked() public {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 1 ether, 10 ether, 0);
@@ -629,14 +632,14 @@ contract OperatorPermitTest is Test {
         bytes memory callData = abi.encodeWithSelector(
             bytes4(0x39509351),
             router,
-            3 ether // exceeds instanceApproveLimit of 2 ether
+            3 ether
         );
         (bool ok, string memory reason) = spendingLimit.check(
             tokenId, renter, address(0x70CE),
             bytes4(0x39509351), callData, 0
         );
-        assertFalse(ok, "increaseAllowance exceeding limit must be blocked");
-        assertEq(reason, "Approve exceeds limit");
+        assertFalse(ok, "increaseAllowance must be blocked unconditionally");
+        assertEq(reason, "Use approve instead of increaseAllowance");
     }
 
     /// @notice decreaseAllowance to unapproved spender must also be blocked.
@@ -654,8 +657,8 @@ contract OperatorPermitTest is Test {
         assertEq(reason, "Approve spender not allowed");
     }
 
-    /// @notice increaseAllowance within limits to approved spender should pass.
-    function test_increaseAllowance_withinLimit_passes() public {
+    /// @notice H-2 fix: increaseAllowance blocked even for approved spender within limit.
+    function test_increaseAllowance_withinLimit_blocked() public {
         bytes32 tid = instanceTemplate(tokenId);
         spendingLimit.setTemplateCeiling(tid, 1 ether, 10 ether, 0);
         spendingLimit.setTemplateApproveCeiling(tid, 5 ether);
@@ -669,13 +672,14 @@ contract OperatorPermitTest is Test {
         bytes memory callData = abi.encodeWithSelector(
             bytes4(0x39509351),
             router,
-            2 ether // within limit
+            2 ether // within limit but still blocked
         );
-        (bool ok, ) = spendingLimit.check(
+        (bool ok, string memory reason) = spendingLimit.check(
             tokenId, renter, address(0x70CE),
             bytes4(0x39509351), callData, 0
         );
-        assertTrue(ok, "increaseAllowance within limit to approved spender should pass");
+        assertFalse(ok, "increaseAllowance must be blocked unconditionally");
+        assertEq(reason, "Use approve instead of increaseAllowance");
     }
 
     // ═══════════════════════════════════════════════════════
