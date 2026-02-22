@@ -388,6 +388,10 @@ contract AgentNFA is
             revert Errors.OnlyListingManager();
         }
         _requireMinted(tokenId);
+        // Clear stale operator from previous renter
+        if (_operators[tokenId] != address(0)) {
+            _setOperator(tokenId, address(0), 0);
+        }
         _users[tokenId] = user;
         _userExpires[tokenId] = expires;
         emit UpdateUser(tokenId, user, expires);
