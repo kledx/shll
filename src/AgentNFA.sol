@@ -869,6 +869,22 @@ contract AgentNFA is
     }
 
     // ─── ERC721 overrides (OZ v4 requires these) ───
+
+    /// @dev Block instance token transfers — instances are non-transferable.
+    ///      Prevents stale renter/operator privileges after ownership change.
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 firstTokenId,
+        uint256 batchSize
+    ) internal override {
+        super._beforeTokenTransfer(from, to, firstTokenId, batchSize);
+        // Allow mint (from==0) and burn (to==0), block instance transfers
+        if (from != address(0) && to != address(0) && _isInstance[firstTokenId]) {
+            revert Errors.Unauthorized();
+        }
+    }
+
     function _burn(
         uint256 tokenId
     ) internal override(ERC721, ERC721URIStorage) {
