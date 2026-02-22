@@ -320,8 +320,10 @@ contract AgentNFA is
         if (to == address(0)) revert Errors.ZeroAddress();
 
         // Mint new tokenId
+        // V-002 fix: use _mint instead of _safeMint to prevent reentrancy
+        // during onERC721Received before _users/_isInstance are set.
         instanceId = _nextTokenId++;
-        _safeMint(to, instanceId);
+        _mint(to, instanceId);
 
         // Deploy a dedicated AgentAccount for this instance
         AgentAccount account = new AgentAccount(address(this), instanceId);
