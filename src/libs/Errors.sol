@@ -58,4 +58,12 @@ library Errors {
     error NotTemplate(uint256 tokenId);
     error AlreadyTemplate(uint256 tokenId);
     error InvalidInitParams();
+
+    // ─── SubscriptionManager ───
+    error SubscriptionNotFound(uint256 instanceId);
+    error SubscriptionNotActive(uint256 instanceId);
+    error SubscriptionExpiredBeyondRenewal(uint256 instanceId);
+    error SubscriptionAlreadyExists(uint256 instanceId);
+    error OnlySubscriber();
+    error GracePeriodTooLong(uint32 requested, uint32 maximum);
 }
