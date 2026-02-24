@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {
+    IERC721
+} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {
     ERC165
 } from "openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
@@ -21,6 +23,10 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
 
     address public immutable guard;
     address public immutable agentNFA;
+
+    // ERC20.approve(address,uint256) — exempt from cooldown to enable
+    // executeBatch([approve, swap]) in a single transaction.
+    bytes4 private constant APPROVE_SELECTOR = 0x095ea7b3;
 
     // ─── Events ───
     event CooldownSet(uint256 indexed instanceId, uint256 seconds_);
@@ -67,10 +73,14 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
         uint256 instanceId,
         address,
         address,
-        bytes4,
+        bytes4 selector,
         bytes calldata,
         uint256
     ) external view override returns (bool ok, string memory reason) {
+        // Approve is a zero-value authorization, exempt from cooldown
+        // to allow approve+swap batching via executeBatch.
+        if (selector == APPROVE_SELECTOR) return (true, "");
+
         uint256 cd = _resolveCooldown(instanceId);
         // Fail-close: unconfigured cooldown blocks all operations.
         // Previously fail-open, allowing unrestricted execution frequency when no cooldown was set.
@@ -98,11 +108,14 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
     function onCommit(
         uint256 instanceId,
         address,
-        bytes4,
+        bytes4 selector,
         bytes calldata,
         uint256
     ) external override {
         if (msg.sender != guard) revert OnlyGuard();
+        // Don't reset cooldown timer for approve — keeps batch-compatible
+        // so executeBatch([approve, swap]) doesn't block swap.
+        if (selector == APPROVE_SELECTOR) return;
         lastExecution[instanceId] = block.timestamp;
         emit ExecutionRecorded(instanceId, block.timestamp);
     }
