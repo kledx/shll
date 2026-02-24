@@ -3,10 +3,13 @@ pragma solidity ^0.8.24;
 
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {CalldataDecoder} from "../libs/CalldataDecoder.sol";
+import {
+    ERC165
+} from "openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
 
 /// @title ReceiverGuardPolicy — Ensure swap output goes back to the Agent's vault
 /// @notice This is a non-configurable safety policy. Owner sets, renter cannot remove.
-contract ReceiverGuardPolicy is IPolicy {
+contract ReceiverGuardPolicy is IPolicy, ERC165 {
     // ─── Storage ───
     address public immutable agentNFA;
 
@@ -87,6 +90,15 @@ contract ReceiverGuardPolicy is IPolicy {
 
     function renterConfigurable() external pure override returns (bool) {
         return false; // Owner sets, renter cannot remove
+    }
+
+    /// @dev ERC165: declare IPolicy support; PolicyGuardV4 commit skips non-ICommittable policies cleanly
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override returns (bool) {
+        return
+            interfaceId == type(IPolicy).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 }
 

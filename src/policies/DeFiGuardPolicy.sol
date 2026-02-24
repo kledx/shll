@@ -2,7 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {
+    IERC721
+} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {
+    ERC165
+} from "openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {IERC4907} from "../interfaces/IERC4907.sol";
 
@@ -12,7 +17,7 @@ import {IERC4907} from "../interfaces/IERC4907.sol";
 ///         1. Global blacklist (Owner) — highest priority, blocks known malicious contracts
 ///         2. Function selector filter (Owner) — only known DeFi ops (swap, approve, etc.)
 ///         3. Target whitelist: global defaults (Owner) + per-instance additions (Renter)
-contract DeFiGuardPolicy is IPolicy {
+contract DeFiGuardPolicy is IPolicy, ERC165 {
     // ═══════════════════════════════════════════════════════
     //                       STORAGE
     // ═══════════════════════════════════════════════════════
@@ -251,6 +256,15 @@ contract DeFiGuardPolicy is IPolicy {
 
     function renterConfigurable() external pure override returns (bool) {
         return true;
+    }
+
+    /// @dev ERC165: declare IPolicy support; PolicyGuardV4 commit skips non-ICommittable policies cleanly
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override returns (bool) {
+        return
+            interfaceId == type(IPolicy).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     // ═══════════════════════════════════════════════════════

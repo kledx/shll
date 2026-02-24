@@ -2,7 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {
+    IERC721
+} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {
+    ERC165
+} from "openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {IERC4907} from "../interfaces/IERC4907.sol";
 import {IAgentNFATemplateView} from "../interfaces/IAgentNFATemplateView.sol";
@@ -13,7 +18,7 @@ import {IAgentNFATemplateView} from "../interfaces/IAgentNFATemplateView.sol";
 ///      1) Template allowlist is always effective for instances.
 ///      2) Instance can add extra allowed DEX addresses (incremental allow).
 ///      3) Instance can block DEX addresses to tighten boundaries.
-contract DexWhitelistPolicy is IPolicy {
+contract DexWhitelistPolicy is IPolicy, ERC165 {
     // --- Storage ---
     mapping(uint256 => mapping(address => bool)) public dexAllowed;
     mapping(uint256 => address[]) internal _dexList;
@@ -101,10 +106,9 @@ contract DexWhitelistPolicy is IPolicy {
         // All three share (address, uint256) layout — spender is at calldata offset [16:36].
         address candidate = target;
         if (
-            (selector == bytes4(0x095ea7b3) ||  // approve
-             selector == bytes4(0x39509351) ||  // increaseAllowance
-             selector == bytes4(0xa457c2d7))    // decreaseAllowance
-            && data.length >= 36
+            (selector == bytes4(0x095ea7b3) || // approve
+                selector == bytes4(0x39509351) || // increaseAllowance
+                selector == bytes4(0xa457c2d7)) && data.length >= 36 // decreaseAllowance
         ) {
             candidate = address(bytes20(data[16:36]));
         }
@@ -136,7 +140,18 @@ contract DexWhitelistPolicy is IPolicy {
         return true;
     }
 
-    function _hasAnyAllowedDex(uint256 instanceId) internal view returns (bool) {
+    /// @dev ERC165: declare IPolicy support; PolicyGuardV4 commit skips non-ICommittable policies cleanly
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override returns (bool) {
+        return
+            interfaceId == type(IPolicy).interfaceId ||
+            super.supportsInterface(interfaceId);
+    }
+
+    function _hasAnyAllowedDex(
+        uint256 instanceId
+    ) internal view returns (bool) {
         if (_dexList[instanceId].length > 0) return true;
         if (_isInstance(instanceId)) {
             uint256 templateId = _templateIdOf(instanceId);
