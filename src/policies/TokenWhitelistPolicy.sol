@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {
+    IERC721
+} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {IPolicy} from "../interfaces/IPolicy.sol";
 import {IERC4907} from "../interfaces/IERC4907.sol";
 import {CalldataDecoder} from "../libs/CalldataDecoder.sol";
@@ -19,6 +21,7 @@ contract TokenWhitelistPolicy is IPolicy {
     mapping(uint256 => mapping(address => bool)) public tokenAllowed;
     mapping(uint256 => address[]) internal _tokenList;
     mapping(uint256 => bool) public hasCustomTokenList;
+    mapping(uint256 => bool) public whitelistBypassed;
 
     mapping(uint256 => mapping(address => bool)) public tokenBlocked;
     mapping(uint256 => address[]) internal _blockedTokenList;
@@ -42,6 +45,7 @@ contract TokenWhitelistPolicy is IPolicy {
     event TokenRemoved(uint256 indexed instanceId, address indexed token);
     event TokenBlocked(uint256 indexed instanceId, address indexed token);
     event TokenUnblocked(uint256 indexed instanceId, address indexed token);
+    event WhitelistBypassSet(uint256 indexed instanceId, bool bypassed);
 
     // --- Errors ---
     error NotRenterOrOwner();
@@ -101,6 +105,16 @@ contract TokenWhitelistPolicy is IPolicy {
         return _blockedTokenList[instanceId];
     }
 
+    /// @notice Renter/Owner can bypass the token whitelist check entirely
+    /// @param instanceId Agent NFT token ID
+    /// @param bypass true = allow any token, false = enforce whitelist
+    function setBypass(uint256 instanceId, bool bypass) external {
+        _checkRenterOrOwner(instanceId);
+        whitelistBypassed[instanceId] = bypass;
+        if (_isInstance(instanceId)) hasCustomTokenList[instanceId] = true;
+        emit WhitelistBypassSet(instanceId, bypass);
+    }
+
     function check(
         uint256 instanceId,
         address,
@@ -109,8 +123,15 @@ contract TokenWhitelistPolicy is IPolicy {
         bytes calldata callData,
         uint256
     ) external view override returns (bool ok, string memory reason) {
+        // Bypass: renter opted out of token restrictions
+        if (whitelistBypassed[instanceId]) return (true, "");
+        // Also check template-level bypass for instances
+        if (
+            _isInstance(instanceId) &&
+            whitelistBypassed[_templateIdOf(instanceId)]
+        ) return (true, "");
+
         // Fail-close: unconfigured token whitelist blocks all swap operations.
-        // Previously fail-open, allowing unrestricted token paths when no tokens were whitelisted.
         if (!_hasAnyAllowedTokens(instanceId))
             return (false, "Token whitelist not configured");
 
@@ -170,7 +191,9 @@ contract TokenWhitelistPolicy is IPolicy {
         return (true, "");
     }
 
-    function _hasAnyAllowedTokens(uint256 instanceId) internal view returns (bool) {
+    function _hasAnyAllowedTokens(
+        uint256 instanceId
+    ) internal view returns (bool) {
         if (_tokenList[instanceId].length > 0) return true;
         if (_isInstance(instanceId)) {
             uint256 templateId = _templateIdOf(instanceId);
