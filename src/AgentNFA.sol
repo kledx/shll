@@ -21,9 +21,13 @@ import {IBAP578} from "./interfaces/IBAP578.sol";
 
 import {IPolicyGuard} from "./interfaces/IPolicyGuard.sol";
 import {IAgentAccount} from "./interfaces/IAgentAccount.sol";
-import {AgentAccount} from "./AgentAccount.sol";
+import {AgentAccountV2} from "./AgentAccountV2.sol";
+import {
+    IERC8004IdentityRegistry
+} from "./interfaces/IERC8004IdentityRegistry.sol";
 import {Action} from "./types/Action.sol";
 import {Errors} from "./libs/Errors.sol";
+import {ISubscriptionManager} from "./interfaces/ISubscriptionManager.sol";
 
 /// @title AgentNFA — Non-Fungible Agent with BAP-578 identity + ERC-4907 rental
 /// @notice Identity layer: mint agents, manage rentals, route execution through PolicyGuard
@@ -69,6 +73,30 @@ contract AgentNFA is
 
     /// @notice The ListingManager contract (only it can call setUser)
     address public listingManager;
+
+    /// @notice Optional SubscriptionManager (when set, instance execution is gated by subscription status)
+    address public subscriptionManager;
+
+    /// @notice ERC-8004 Identity Registry for agent registration
+    address public identityRegistry;
+
+    /// @notice SHLL tokenId => ERC-8004 agentId mapping
+    mapping(uint256 => uint256) public erc8004AgentId;
+
+    /// @notice Whether a token has been registered with ERC-8004
+    mapping(uint256 => bool) public isRegistered8004;
+
+    /// @notice BAP-578 V4: LearningModule contract (pluggable logic)
+    address public learningModule;
+
+    /// @notice BAP-578 V4: tokenId => PoP Merkle Tree root
+    mapping(uint256 => bytes32) public learningTreeRoot;
+
+    /// @notice BAP-578 V4: tokenId => total PoP leaf count
+    mapping(uint256 => uint256) public learningLeafCount;
+
+    /// @notice BAP-578 V4: tokenId => learning enabled flag
+    mapping(uint256 => bool) public learningEnabled;
 
     /// @notice tokenId => authorized operator address
     mapping(uint256 => address) private _operators;
@@ -186,6 +214,23 @@ contract AgentNFA is
     event AgentInstancePaused(uint256 indexed tokenId);
     event AgentInstanceUnpaused(uint256 indexed tokenId);
 
+    // ─── V4.0: ERC-8004 Events ───
+    event AgentRegistered8004(uint256 indexed tokenId, uint256 indexed agentId);
+    event AgentProfile8004Updated(
+        uint256 indexed tokenId,
+        uint256 indexed agentId,
+        string newURI
+    );
+
+    // ─── V4.0: BAP-578 Learning Events ───
+    event LearningModuleSet(address indexed module);
+    event LearningDataUpdated(
+        uint256 indexed tokenId,
+        bytes32 newRoot,
+        uint256 leafCount
+    );
+    event LearningToggled(uint256 indexed tokenId, bool enabled);
+
     constructor(
         address _policyGuard
     ) ERC721("ShellAgent", "SHLL") EIP712("SHLL AgentNFA", "1") {
@@ -202,9 +247,36 @@ contract AgentNFA is
         listingManager = _listingManager;
     }
 
+    /// @notice Set SubscriptionManager (address(0) disables subscription execution gating)
+    function setSubscriptionManager(
+        address _subscriptionManager
+    ) external onlyOwner {
+        subscriptionManager = _subscriptionManager;
+    }
+
     function setPolicyGuard(address _policyGuard) external onlyOwner {
         if (_policyGuard == address(0)) revert Errors.ZeroAddress();
         policyGuard = _policyGuard;
+    }
+
+    /// @notice Set the ERC-8004 Identity Registry address (address(0) = disabled)
+    function setIdentityRegistry(address _identityRegistry) external onlyOwner {
+        identityRegistry = _identityRegistry;
+    }
+
+    /// @notice Set the BAP-578 Learning Module address (address(0) = disabled)
+    function setLearningModule(address _learningModule) external onlyOwner {
+        learningModule = _learningModule;
+        emit LearningModuleSet(_learningModule);
+    }
+
+    /// @notice Toggle learning for an agent (owner or LearningModule)
+    function setLearningEnabled(uint256 _tokenId, bool enabled) external {
+        if (msg.sender != ownerOf(_tokenId) && msg.sender != learningModule) {
+            revert Errors.OnlyOwner();
+        }
+        learningEnabled[_tokenId] = enabled;
+        emit LearningToggled(_tokenId, enabled);
     }
 
     function pause() external onlyOwner {
@@ -232,8 +304,8 @@ contract AgentNFA is
         _mint(to, tokenId);
         _setTokenURI(tokenId, uri);
 
-        // Deploy a dedicated AgentAccount for this NFA
-        AgentAccount account = new AgentAccount(address(this), tokenId);
+        // Deploy a dedicated AgentAccountV2 for this NFA
+        AgentAccountV2 account = new AgentAccountV2(address(this), tokenId);
         _accountOf[tokenId] = address(account);
         _policyIdOf[tokenId] = policyId;
 
@@ -246,6 +318,9 @@ contract AgentNFA is
 
         emit AgentMinted(tokenId, to, address(account), policyId);
         emit AgentTypeSet(tokenId, _agentType);
+
+        // V4.0: Auto-register with ERC-8004 Identity Registry
+        _registerIdentity(tokenId, uri);
     }
 
     /// @notice Admin-only: set or update the agent type for an existing token
@@ -325,8 +400,8 @@ contract AgentNFA is
         instanceId = _nextTokenId++;
         _mint(to, instanceId);
 
-        // Deploy a dedicated AgentAccount for this instance
-        AgentAccount account = new AgentAccount(address(this), instanceId);
+        // Deploy a dedicated AgentAccountV2 for this instance
+        AgentAccountV2 account = new AgentAccountV2(address(this), instanceId);
         _accountOf[instanceId] = address(account);
 
         // Inherit template's frozen policyId (immutable reference)
@@ -373,6 +448,9 @@ contract AgentNFA is
         }
         emit UpdateUser(instanceId, to, expires);
         emit LeaseSet(instanceId, to, expires);
+
+        // V4.0: Auto-register instance with ERC-8004 Identity Registry
+        _registerIdentity(instanceId, tokenURI(templateId));
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -734,6 +812,25 @@ contract AgentNFA is
         return _paramsHashOf[tokenId];
     }
 
+    /// @notice Get the learning tree root for an agent
+    function learningTreeRootOf(
+        uint256 tokenId
+    ) external view returns (bytes32) {
+        return learningTreeRoot[tokenId];
+    }
+
+    /// @notice Get the learning leaf count for an agent
+    function learningLeafCountOf(
+        uint256 tokenId
+    ) external view returns (uint256) {
+        return learningLeafCount[tokenId];
+    }
+
+    /// @notice Check if learning is enabled for an agent
+    function isLearningEnabled(uint256 tokenId) external view returns (bool) {
+        return learningEnabled[tokenId];
+    }
+
     // ═══════════════════════════════════════════════════════════
     //          V3.1+ Reserved API: REMOVED (EIP-170 limit)
     //          Re-add: enableLearning, setMemoryRegistry,
@@ -814,6 +911,83 @@ contract AgentNFA is
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //                    V4.0: ERC-8004 IDENTITY
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Update an agent's ERC-8004 registration profile
+    /// @param _tokenId The SHLL tokenId
+    /// @param newURI The new registration file URI
+    function updateAgentProfile(
+        uint256 _tokenId,
+        string calldata newURI
+    ) external {
+        if (msg.sender != ownerOf(_tokenId)) revert Errors.OnlyOwner();
+        if (identityRegistry == address(0)) revert Errors.ZeroAddress();
+        if (!isRegistered8004[_tokenId]) revert Errors.TokenNotExist(_tokenId);
+        uint256 agentId = erc8004AgentId[_tokenId];
+        IERC8004IdentityRegistry(identityRegistry).setAgentURI(agentId, newURI);
+        emit AgentProfile8004Updated(_tokenId, agentId, newURI);
+    }
+
+    /// @dev Register with ERC-8004 Identity Registry if configured.
+    ///      V4.1: Routes through vault's executeCall so msg.sender = vault,
+    ///      which implements onERC721Received for safeMint compatibility.
+    ///      Uses try/catch so registry failure does NOT block minting.
+    function _registerIdentity(uint256 _tokenId, string memory uri) internal {
+        if (identityRegistry == address(0)) return;
+        address vault = _accountOf[_tokenId];
+        if (vault == address(0)) return;
+
+        // Encode: registry.register(string uri)
+        // Selector for register(string) = 0xf2c298be (overloaded, cannot use .selector)
+        bytes memory callData = abi.encodeWithSelector(
+            bytes4(keccak256("register(string)")),
+            uri
+        );
+
+        // Execute through vault so msg.sender = vault (has onERC721Received)
+        try
+            IAgentAccount(vault).executeCall(identityRegistry, 0, callData)
+        returns (bool ok, bytes memory result) {
+            if (ok && result.length >= 32) {
+                uint256 agentId = abi.decode(result, (uint256));
+                erc8004AgentId[_tokenId] = agentId;
+                isRegistered8004[_tokenId] = true;
+                emit AgentRegistered8004(_tokenId, agentId);
+            }
+        } catch {
+            // Registry failure should not block minting
+        }
+    }
+
+    /// @notice Manually register an existing token with ERC-8004
+    /// @dev For tokens minted before registry was configured or after a registry change
+    function registerManual(
+        uint256 _tokenId,
+        string calldata uri
+    ) external onlyOwner {
+        require(!isRegistered8004[_tokenId], "already registered");
+        require(_exists(_tokenId), "token does not exist");
+        _registerIdentity(_tokenId, uri);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //                V4.0: BAP-578 LEARNING DATA CALLBACKS
+    // ═══════════════════════════════════════════════════════════
+
+    /// @notice Update learning data — only callable by LearningModule
+    function setLearningData(
+        uint256 _tokenId,
+        bytes32 newRoot,
+        uint256 newLeafCount
+    ) external {
+        if (msg.sender != learningModule) revert Errors.Unauthorized();
+        learningTreeRoot[_tokenId] = newRoot;
+        learningLeafCount[_tokenId] = newLeafCount;
+        emit LearningDataUpdated(_tokenId, newRoot, newLeafCount);
+    }
+
     /// @dev Check execute permission and run PolicyGuard for renters
     /// @dev DESIGN NOTE: For non-Instance tokens (templates & standalone agents),
     ///      the owner bypasses PolicyGuard validation entirely. This is BY DESIGN —
@@ -829,6 +1003,11 @@ contract AgentNFA is
         address renter = userOf(tokenId);
 
         if (msg.sender == tokenOwner) {
+            // Subscription model enforcement (buyout semantics):
+            // for instance tokens, only Active subscription can execute.
+            // Expired/Grace/Canceled can still withdraw from vault via AgentAccount owner path.
+            _requireSubscriptionExecutable(tokenId);
+
             // Instance owners (Rent-to-Mint) MUST pass PolicyGuard
             if (_isInstance[tokenId]) {
                 (bool ok, string memory reason) = IPolicyGuard(policyGuard)
@@ -845,6 +1024,8 @@ contract AgentNFA is
         }
 
         if (msg.sender == renter || msg.sender == operatorOf(tokenId)) {
+            _requireSubscriptionExecutable(tokenId);
+
             // Renter or operator must be within lease period
             if (renter == address(0)) revert Errors.LeaseExpired();
 
@@ -856,6 +1037,21 @@ contract AgentNFA is
         }
 
         revert Errors.Unauthorized();
+    }
+
+    function _requireSubscriptionExecutable(uint256 tokenId) internal view {
+        if (!_isInstance[tokenId]) return;
+        if (subscriptionManager == address(0)) return;
+
+        ISubscriptionManager.SubscriptionStatus status = ISubscriptionManager(
+            subscriptionManager
+        ).getEffectiveStatus(tokenId);
+
+        // Strict mode: when subscriptionManager is configured, instance execution
+        // requires an Active subscription record.
+        if (status != ISubscriptionManager.SubscriptionStatus.Active) {
+            revert Errors.SubscriptionNotActive(tokenId);
+        }
     }
 
     function _setOperator(
@@ -880,7 +1076,9 @@ contract AgentNFA is
     ) internal override {
         super._beforeTokenTransfer(from, to, firstTokenId, batchSize);
         // Allow mint (from==0) and burn (to==0), block instance transfers
-        if (from != address(0) && to != address(0) && _isInstance[firstTokenId]) {
+        if (
+            from != address(0) && to != address(0) && _isInstance[firstTokenId]
+        ) {
             revert Errors.Unauthorized();
         }
     }
