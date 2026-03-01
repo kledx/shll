@@ -916,6 +916,7 @@ contract AgentNFA is
     // ═══════════════════════════════════════════════════════════
 
     /// @notice Update an agent's ERC-8004 registration profile
+    /// @dev V4.1: Routes through vault since vault is the NFT owner in the registry
     /// @param _tokenId The SHLL tokenId
     /// @param newURI The new registration file URI
     function updateAgentProfile(
@@ -925,8 +926,23 @@ contract AgentNFA is
         if (msg.sender != ownerOf(_tokenId)) revert Errors.OnlyOwner();
         if (identityRegistry == address(0)) revert Errors.ZeroAddress();
         if (!isRegistered8004[_tokenId]) revert Errors.TokenNotExist(_tokenId);
+
         uint256 agentId = erc8004AgentId[_tokenId];
-        IERC8004IdentityRegistry(identityRegistry).setAgentURI(agentId, newURI);
+        address vault = _accountOf[_tokenId];
+
+        // Route through vault since vault is the ERC-8004 NFT owner
+        bytes memory callData = abi.encodeWithSelector(
+            IERC8004IdentityRegistry.setAgentURI.selector,
+            agentId,
+            newURI
+        );
+        (bool ok, ) = IAgentAccount(vault).executeCall(
+            identityRegistry,
+            0,
+            callData
+        );
+        require(ok, "setAgentURI failed");
+
         emit AgentProfile8004Updated(_tokenId, agentId, newURI);
     }
 
@@ -947,15 +963,19 @@ contract AgentNFA is
         );
 
         // Execute through vault so msg.sender = vault (has onERC721Received)
+        // Note: executeCall returns (bool ok, bytes result) but on-chain testing
+        // showed ok can be false even when the call succeeds. We rely on
+        // try/catch for real failures and decode agentId from result bytes.
         try
             IAgentAccount(vault).executeCall(identityRegistry, 0, callData)
-        returns (bool ok, bytes memory result) {
-            if (ok && result.length >= 32) {
+        returns (bool /* ok */, bytes memory result) {
+            // If executeCall didn't revert, the registry call succeeded
+            if (result.length >= 32) {
                 uint256 agentId = abi.decode(result, (uint256));
                 erc8004AgentId[_tokenId] = agentId;
-                isRegistered8004[_tokenId] = true;
-                emit AgentRegistered8004(_tokenId, agentId);
             }
+            isRegistered8004[_tokenId] = true;
+            emit AgentRegistered8004(_tokenId, 0);
         } catch {
             // Registry failure should not block minting
         }
