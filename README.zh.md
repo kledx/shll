@@ -3,7 +3,6 @@
 English: [README.md](./README.md)
 
 官方网站: https://shll.run
-官方 DApp: https://app.shll.xyz
 官方推特 (X): https://x.com/shllrun
 开发者工具 (MCP/CLI): [shll-skills](https://www.npmjs.com/package/shll-skills)
 
@@ -97,7 +96,7 @@ SHLL 的完整实现由以下几个代码仓库共同构成：
 |---|---|---|
 | **核心合约库** (本仓库) | [repos/shll](https://github.com/kledx/shll) | SHLL 协议 V4 智能合约底层逻辑 |
 | **AI 技能插件舱** | [repos/shll-openclaw-skill](https://github.com/kledx/shll-skills) | 支持 MCP 与 CLI 双端的 DeFi 交互工具链 (v5.4+) |
-| **前端应用 DApp** | [repos/shll-web](https://github.com/kledx/shll-web) | Next.js 构建的 Agent 租赁市场及控制台 |
+| **底层风控 SDK** | [repos/shll-policy-sdk](https://github.com/kledx/shll-policy-sdk) | 提供 BAP-578 以及 PolicyGuard 的 TypeScript 调用方案 |
 | **链上数据索引器** | [repos/shll-indexer](https://github.com/kledx/shll-indexer) | 基于 Ponder 构建的实时底层事件分析 API |
 
 ## 开源许可

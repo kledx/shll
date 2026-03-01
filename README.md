@@ -3,7 +3,6 @@
 中文说明: [README.zh.md](./README.zh.md)
 
 Official Website: https://shll.run
-Official DApp: https://app.shll.xyz
 Official X: https://x.com/shllrun
 Skills (MCP/CLI): [shll-skills](https://www.npmjs.com/package/shll-skills)
 
@@ -103,7 +102,7 @@ This workspace has multiple SHLL repositories for end-to-end AI Agent developmen
 |---|---|---|
 | **Contracts** (this repo) | [repos/shll](https://github.com/kledx/shll) | Core solidity protocol |
 | **OpenClaw Skill** | [repos/shll-openclaw-skill](https://github.com/kledx/shll-skills) | MCP Server & CLI tools for AIs (v5.4+) |
-| **Web App** | [repos/shll-web](https://github.com/kledx/shll-web) | Next.js dApp marketplace and dashboard |
+| **Policy SDK** | [repos/shll-policy-sdk](https://github.com/kledx/shll-policy-sdk) | TypeScript SDK for BAP-578 & PolicyGuard interactions |
 | **Indexer** | [repos/shll-indexer](https://github.com/kledx/shll-indexer) | Real-time Ponder indexing service |
 
 ## License
