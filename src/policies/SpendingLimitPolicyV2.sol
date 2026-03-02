@@ -81,7 +81,7 @@ contract SpendingLimitPolicyV2 is
 
     // ─── Immutables ───
     address public immutable guard;
-    address public immutable agentNFA;
+    address public agentNFA;
 
     // ─── Selectors: Safety (hardcoded, not DEX-specific) ───
     bytes4 private constant APPROVE = 0x095ea7b3;
@@ -132,6 +132,7 @@ contract SpendingLimitPolicyV2 is
     event TokenAdded(uint256 indexed instanceId, address indexed token);
     event TokenRemoved(uint256 indexed instanceId, address indexed token);
     event OutputPatternSet(bytes4 indexed selector, OutputPattern pattern);
+    event AgentNFAUpdated(address indexed oldNFA, address indexed newNFA);
 
     // ─── Errors ───
     error NotRenterOrOwner();
@@ -143,6 +144,15 @@ contract SpendingLimitPolicyV2 is
 
     constructor(address _guard, address _nfa) {
         guard = _guard;
+        agentNFA = _nfa;
+    }
+
+    /// @notice Update the AgentNFA reference (owner-only)
+    /// @param _nfa New AgentNFA address
+    function setAgentNFA(address _nfa) external {
+        _onlyOwner();
+        require(_nfa != address(0), "zero address");
+        emit AgentNFAUpdated(agentNFA, _nfa);
         agentNFA = _nfa;
     }
 

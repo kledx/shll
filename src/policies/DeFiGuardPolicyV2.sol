@@ -58,7 +58,7 @@ contract DeFiGuardPolicyV2 is IPolicy, ERC165 {
 
     // Immutables
     address public immutable guard;
-    address public immutable agentNFA;
+    address public agentNFA;
 
     // ═══════════════════════════════════════════════════════
     //                       EVENTS
@@ -95,6 +95,7 @@ contract DeFiGuardPolicyV2 is IPolicy, ERC165 {
         uint256 indexed instanceId,
         bytes32 indexed packId
     );
+    event AgentNFAUpdated(address indexed oldNFA, address indexed newNFA);
 
     // ═══════════════════════════════════════════════════════
     //                       ERRORS
@@ -115,6 +116,13 @@ contract DeFiGuardPolicyV2 is IPolicy, ERC165 {
 
     constructor(address _guard, address _nfa) {
         guard = _guard;
+        agentNFA = _nfa;
+    }
+
+    function setAgentNFA(address _nfa) external {
+        _onlyOwner();
+        require(_nfa != address(0), "zero address");
+        emit AgentNFAUpdated(agentNFA, _nfa);
         agentNFA = _nfa;
     }
 

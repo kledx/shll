@@ -27,7 +27,7 @@ contract TokenWhitelistPolicy is IPolicy {
     mapping(uint256 => address[]) internal _blockedTokenList;
 
     address public immutable guard;
-    address public immutable agentNFA;
+    address public agentNFA;
 
     // --- Selectors: PancakeSwap V2 variants ---
     // Group A: 5-param layout (amount, amount, path, to, deadline)
@@ -46,6 +46,7 @@ contract TokenWhitelistPolicy is IPolicy {
     event TokenBlocked(uint256 indexed instanceId, address indexed token);
     event TokenUnblocked(uint256 indexed instanceId, address indexed token);
     event WhitelistBypassSet(uint256 indexed instanceId, bool bypassed);
+    event AgentNFAUpdated(address indexed oldNFA, address indexed newNFA);
 
     // --- Errors ---
     error NotRenterOrOwner();
@@ -55,6 +56,13 @@ contract TokenWhitelistPolicy is IPolicy {
 
     constructor(address _guard, address _nfa) {
         guard = _guard;
+        agentNFA = _nfa;
+    }
+
+    function setAgentNFA(address _nfa) external {
+        require(msg.sender == Ownable(guard).owner(), "Only owner");
+        require(_nfa != address(0), "zero address");
+        emit AgentNFAUpdated(agentNFA, _nfa);
         agentNFA = _nfa;
     }
 

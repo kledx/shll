@@ -18,7 +18,7 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 ///   4 = V3_STRUCT_RECIPIENT_W1: struct with recipient at word 1      → e.g. exactInput
 ///   0 = UNKNOWN: not a swap → if value > 0, target must be vault
 contract ReceiverGuardPolicyV2 is IPolicy, ERC165 {
-    address public immutable agentNFA;
+    address public agentNFA;
     address public immutable guard;
 
     // selector → decode pattern (0 = unknown, 1-4 = see above)
@@ -26,6 +26,7 @@ contract ReceiverGuardPolicyV2 is IPolicy, ERC165 {
 
     event PatternSet(bytes4 indexed selector, uint8 pattern);
     event PatternBatchSet(bytes4[] selectors, uint8 pattern);
+    event AgentNFAUpdated(address indexed oldNFA, address indexed newNFA);
 
     error OnlyOwner();
 
@@ -52,6 +53,13 @@ contract ReceiverGuardPolicyV2 is IPolicy, ERC165 {
     // ═══════════════════════════════════════════════════════
     //                    ADMIN
     // ═══════════════════════════════════════════════════════
+
+    function setAgentNFA(address _nfa) external {
+        _onlyOwner();
+        require(_nfa != address(0), "zero address");
+        emit AgentNFAUpdated(agentNFA, _nfa);
+        agentNFA = _nfa;
+    }
 
     function setPattern(bytes4 selector, uint8 pattern) external {
         _onlyOwner();

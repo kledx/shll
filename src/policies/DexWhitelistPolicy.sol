@@ -28,13 +28,14 @@ contract DexWhitelistPolicy is IPolicy, ERC165 {
     mapping(uint256 => address[]) internal _blockedDexList;
 
     address public immutable guard;
-    address public immutable agentNFA;
+    address public agentNFA;
 
     // --- Events ---
     event DexAdded(uint256 indexed instanceId, address indexed dex);
     event DexRemoved(uint256 indexed instanceId, address indexed dex);
     event DexBlocked(uint256 indexed instanceId, address indexed dex);
     event DexUnblocked(uint256 indexed instanceId, address indexed dex);
+    event AgentNFAUpdated(address indexed oldNFA, address indexed newNFA);
 
     // --- Errors ---
     error NotRenterOrOwner();
@@ -44,6 +45,13 @@ contract DexWhitelistPolicy is IPolicy, ERC165 {
 
     constructor(address _guard, address _nfa) {
         guard = _guard;
+        agentNFA = _nfa;
+    }
+
+    function setAgentNFA(address _nfa) external {
+        require(msg.sender == Ownable(guard).owner(), "Only owner");
+        require(_nfa != address(0), "zero address");
+        emit AgentNFAUpdated(agentNFA, _nfa);
         agentNFA = _nfa;
     }
 

@@ -22,7 +22,7 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
     mapping(uint256 => bool) public hasCustomCooldown;
 
     address public immutable guard;
-    address public immutable agentNFA;
+    address public agentNFA;
 
     // ERC20.approve(address,uint256) — exempt from cooldown to enable
     // executeBatch([approve, swap]) in a single transaction.
@@ -31,6 +31,7 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
     // ─── Events ───
     event CooldownSet(uint256 indexed instanceId, uint256 seconds_);
     event ExecutionRecorded(uint256 indexed instanceId, uint256 timestamp);
+    event AgentNFAUpdated(address indexed oldNFA, address indexed newNFA);
 
     // ─── Errors ───
     error NotRenterOrOwner();
@@ -39,6 +40,13 @@ contract CooldownPolicy is IPolicy, ICommittable, ERC165 {
 
     constructor(address _guard, address _nfa) {
         guard = _guard;
+        agentNFA = _nfa;
+    }
+
+    function setAgentNFA(address _nfa) external {
+        require(msg.sender == Ownable(guard).owner(), "Only owner");
+        require(_nfa != address(0), "zero address");
+        emit AgentNFAUpdated(agentNFA, _nfa);
         agentNFA = _nfa;
     }
 
