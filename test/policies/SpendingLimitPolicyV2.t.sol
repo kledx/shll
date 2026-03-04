@@ -41,6 +41,7 @@ contract SpendingLimitPolicyV2Test is Test {
 
     bytes4 constant SWAP_EXACT_ETH = 0x7ff36ab5;
     bytes4 constant SWAP_EXACT_ETH_FEE = 0xb6f9de95;
+    bytes4 constant SWAP_EXACT_TOKENS = 0x38ed1739;
     bytes4 constant EXACT_INPUT_SINGLE = 0x04e45aaf;
     bytes4 constant EXACT_INPUT = 0xb858183f;
     bytes4 constant WBNB_DEPOSIT = 0xd0e30db0;
@@ -83,6 +84,11 @@ contract SpendingLimitPolicyV2Test is Test {
         policy.setOutputPattern(
             EXACT_INPUT,
             SpendingLimitPolicyV2.OutputPattern.V3_MULTI
+        );
+        // Register V2 5-param ERC20 swap pattern
+        policy.setOutputPattern(
+            SWAP_EXACT_TOKENS,
+            SpendingLimitPolicyV2.OutputPattern.V2_PATH
         );
         vm.stopPrank();
 
@@ -301,38 +307,114 @@ contract SpendingLimitPolicyV2Test is Test {
     }
 
     // ═══════════════════════════════════════════════════════
-    //         S-1: Approve daily limit tracking
+    //         S-1: ERC20 swap daily limit tracking (bug fix)
     // ═══════════════════════════════════════════════════════
 
-    function test_S1_approve_trackedInDailyLimit() public {
-        bytes memory cd = abi.encodeWithSelector(APPROVE, PANCAKE_V2, 4 ether);
+    function test_S1_erc20Swap_trackedInDailyLimit() public {
+        // Simulate ERC20 swap: swapExactTokensForTokens (value=0, amountIn from calldata)
+        address[] memory path = new address[](2);
+        path[0] = USDT;
+        path[1] = WBNB;
+        bytes memory cd = abi.encodeWithSelector(
+            SWAP_EXACT_TOKENS,
+            4 ether, // amountIn
+            0, // amountOutMin
+            path,
+            CALLER,
+            block.timestamp + 300
+        );
         vm.prank(address(mockGuard));
-        policy.onCommit(INSTANCE_ID, address(0), APPROVE, cd, 0);
+        policy.onCommit(INSTANCE_ID, PANCAKE_V2, SWAP_EXACT_TOKENS, cd, 0);
 
         (uint256 spent, ) = policy.dailyTracking(INSTANCE_ID);
         assertEq(spent, 4 ether);
     }
 
-    function test_S1_approve_exceedsDailyLimit() public {
+    function test_S1_erc20Swap_exceedsDailyLimit() public {
+        // First swap: 8 ether amountIn → tracked
+        address[] memory path = new address[](2);
+        path[0] = USDT;
+        path[1] = WBNB;
         bytes memory commitCd = abi.encodeWithSelector(
-            APPROVE,
-            PANCAKE_V2,
-            8 ether
+            SWAP_EXACT_TOKENS,
+            8 ether,
+            0,
+            path,
+            CALLER,
+            block.timestamp + 300
         );
         vm.prank(address(mockGuard));
-        policy.onCommit(INSTANCE_ID, address(0), APPROVE, commitCd, 0);
+        policy.onCommit(
+            INSTANCE_ID,
+            PANCAKE_V2,
+            SWAP_EXACT_TOKENS,
+            commitCd,
+            0
+        );
 
-        bytes memory cd = abi.encodeWithSelector(APPROVE, PANCAKE_V2, 3 ether);
-        (bool ok, string memory r) = policy.check(
+        // Second swap: 0.5 ether amountIn → should fail (8 + 0.5 > 1 ether maxPerTx ceiling=1 ETH)
+        // Actually this should exceed per-tx: amountIn=0.5 is under 1 ETH maxPerTx
+        // But 8 + 0.5 = 8.5 is under 10 ETH daily. Let's make it exceed the daily:
+        bytes memory cd = abi.encodeWithSelector(
+            SWAP_EXACT_TOKENS,
+            0.5 ether, // amountIn — within per-tx (1 ETH)
+            0,
+            path,
+            CALLER,
+            block.timestamp + 300
+        );
+        // 8 + 0.5 = 8.5, under 10 ETH daily → should pass
+        (bool ok, ) = policy.check(
             INSTANCE_ID,
             CALLER,
-            WBNB,
-            APPROVE,
+            PANCAKE_V2,
+            SWAP_EXACT_TOKENS,
             cd,
             0
         );
-        assertFalse(ok);
-        assertEq(r, "Approve would exceed daily limit");
+        assertTrue(ok);
+
+        // Commit the 0.5 swap, total = 8.5
+        vm.prank(address(mockGuard));
+        policy.onCommit(INSTANCE_ID, PANCAKE_V2, SWAP_EXACT_TOKENS, cd, 0);
+
+        // Third swap: 0.5 ether amountIn → 8.5 + 0.5 = 9 → still ok
+        vm.prank(address(mockGuard));
+        policy.onCommit(INSTANCE_ID, PANCAKE_V2, SWAP_EXACT_TOKENS, cd, 0);
+
+        // Now try 1 ether amountIn → 9 + 1 = 10 → at limit
+        bytes memory bigCd = abi.encodeWithSelector(
+            SWAP_EXACT_TOKENS,
+            1 ether,
+            0,
+            path,
+            CALLER,
+            block.timestamp + 300
+        );
+        (bool ok2, ) = policy.check(
+            INSTANCE_ID,
+            CALLER,
+            PANCAKE_V2,
+            SWAP_EXACT_TOKENS,
+            bigCd,
+            0
+        );
+        assertTrue(ok2); // 9 + 1 = 10, exactly at limit
+
+        vm.prank(address(mockGuard));
+        policy.onCommit(INSTANCE_ID, PANCAKE_V2, SWAP_EXACT_TOKENS, bigCd, 0);
+
+        // Now any swap should exceed daily limit
+        (bool ok3, string memory r) = policy.check(
+            INSTANCE_ID,
+            CALLER,
+            PANCAKE_V2,
+            SWAP_EXACT_TOKENS,
+            cd, // 0.5 ether → 10 + 0.5 > 10
+            0
+        );
+        assertFalse(ok3);
+        assertEq(r, "Daily limit reached");
     }
 
     function test_S1_approve_withinDailyLimit() public {
@@ -502,7 +584,7 @@ contract SpendingLimitPolicyV2Test is Test {
             bytes4[] memory sels,
             SpendingLimitPolicyV2.OutputPattern[] memory pats
         ) = policy.getRegisteredSelectors();
-        assertEq(sels.length, 4);
+        assertEq(sels.length, 5);
         assertEq(
             uint8(pats[0]),
             uint8(SpendingLimitPolicyV2.OutputPattern.V2_PATH)

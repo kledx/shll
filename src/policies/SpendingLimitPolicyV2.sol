@@ -452,16 +452,9 @@ contract SpendingLimitPolicyV2 is
                 }
             }
 
-            // S-1: preview approve amount against daily limit
-            Limits storage aLimits = instanceLimits[instanceId];
-            if (aLimits.maxPerDay > 0) {
-                DailyTracking storage aDt = dailyTracking[instanceId];
-                uint32 aToday = uint32(block.timestamp / 86400);
-                uint256 aSpent = (aDt.dayIndex == aToday) ? aDt.spentToday : 0;
-                if (aSpent + amount > aLimits.maxPerDay) {
-                    return (false, "Approve would exceed daily limit");
-                }
-            }
+            // Note: approve amounts are NOT checked against daily BNB limit.
+            // Approve ceiling (instanceApproveLimit) already gates approve amounts.
+            // Daily limit only tracks native BNB spending (msg.value).
 
             return (true, "");
         }
@@ -487,25 +480,26 @@ contract SpendingLimitPolicyV2 is
             }
         }
 
-        // ── Layer 5: Native BNB spending limits ──
+        // ── Layer 5: Spending limits (native BNB + ERC20 swaps) ──
+        uint256 spend = _extractSpendAmount(selector, callData, value);
         Limits storage limits = instanceLimits[instanceId];
 
         if (limits.maxPerTx == 0 && limits.maxPerDay == 0) {
-            if (value > 0) {
+            if (spend > 0) {
                 return (false, "Spending limits not configured");
             }
             return (true, "");
         }
 
-        if (limits.maxPerTx > 0 && value > limits.maxPerTx) {
+        if (limits.maxPerTx > 0 && spend > limits.maxPerTx) {
             return (false, "Exceeds per-tx limit");
         }
 
-        if (limits.maxPerDay > 0 && value > 0) {
+        if (limits.maxPerDay > 0 && spend > 0) {
             DailyTracking storage dt = dailyTracking[instanceId];
             uint32 today = uint32(block.timestamp / 86400);
             uint256 spent = (dt.dayIndex == today) ? dt.spentToday : 0;
-            if (spent + value > limits.maxPerDay) {
+            if (spent + spend > limits.maxPerDay) {
                 return (false, "Daily limit reached");
             }
         }
@@ -526,7 +520,7 @@ contract SpendingLimitPolicyV2 is
     // ═══════════════════════════════════════════════════════
 
     /// @notice Track spending after successful execution
-    /// @dev Tracks both msg.value and approve amounts toward daily limit
+    /// @dev Tracks both native BNB value AND ERC20 swap amountIn toward daily limit.
     function onCommit(
         uint256 instanceId,
         address,
@@ -536,12 +530,7 @@ contract SpendingLimitPolicyV2 is
     ) external override {
         if (msg.sender != guard) revert OnlyGuard();
 
-        uint256 spend = value;
-        if (selector == APPROVE && callData.length >= 68) {
-            (, uint256 amount) = CalldataDecoder.decodeApprove(callData);
-            if (amount > spend) spend = amount;
-        }
-
+        uint256 spend = _extractSpendAmount(selector, callData, value);
         if (spend == 0) return;
 
         DailyTracking storage dt = dailyTracking[instanceId];
@@ -581,6 +570,61 @@ contract SpendingLimitPolicyV2 is
         if (allowedToken[instanceId][token]) return true;
         bytes32 tid = instanceTemplate[instanceId];
         return templateAllowedToken[tid][token];
+    }
+
+    /// @notice Extract the effective spend amount from a transaction
+    /// @dev For native BNB swaps: returns msg.value
+    ///      For ERC20 swaps (V2 5-param): extracts amountIn from calldata
+    ///      For V3 swaps: extracts amountIn from struct
+    ///      For non-swap operations: returns 0
+    /// @return spend The effective spend amount in token-native units
+    function _extractSpendAmount(
+        bytes4 selector,
+        bytes calldata callData,
+        uint256 value
+    ) internal view returns (uint256 spend) {
+        // Native BNB swaps: value is the spend
+        if (value > 0) return value;
+
+        // ERC20 swaps: extract amountIn from calldata
+        OutputPattern pattern = selectorOutputPattern[selector];
+
+        if (pattern == OutputPattern.V2_PATH) {
+            // 5-param layout: (amountIn, amountOutMin, path, to, deadline)
+            if (callData.length >= 196) {
+                (uint256 amountIn, , , , ) = CalldataDecoder.decodeSwap(
+                    callData
+                );
+                return amountIn;
+            }
+            return 0;
+        }
+
+        if (pattern == OutputPattern.V3_SINGLE) {
+            // exactInputSingle struct:
+            //   tokenIn(0), tokenOut(32), fee(64), recipient(96),
+            //   deadline(128), amountIn(160), amountOutMin(192), sqrtPrice(224)
+            // amountIn at struct offset 160 → calldata offset 4+160=164
+            if (callData.length >= 196) {
+                return uint256(bytes32(callData[164:196]));
+            }
+            return 0;
+        }
+
+        if (pattern == OutputPattern.V3_MULTI) {
+            // exactInput struct:
+            //   bytes path (dynamic, offset pointer at 0),
+            //   address recipient (32), uint256 deadline (64),
+            //   uint256 amountIn (96), uint256 amountOutMin (128)
+            // amountIn at struct offset 96 → calldata offset 4+96=100
+            if (callData.length >= 132) {
+                return uint256(bytes32(callData[100:132]));
+            }
+            return 0;
+        }
+
+        // Unknown selector or non-swap operation: no spend to track
+        return 0;
     }
 
     /// @notice Extract output token from swap calldata using registered pattern
