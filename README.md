@@ -53,15 +53,17 @@ SHLL represents AI Agents as **BAP-578** tokens on BNB Chain.
 | Component / Policy | Mainnet Address |
 |---|---|
 | **Core Contracts** | |
-| `AgentNFA` | [`0xe98dcdbf370d7b52c9a2b88f79bef514a5375a2b`](https://bscscan.com/address/0xe98dcdbf370d7b52c9a2b88f79bef514a5375a2b) |
-| `PolicyGuardV4` | [`0x25d17ea0e3bcb8ca08a2bfe917e817afc05dbbb3`](https://bscscan.com/address/0x25d17ea0e3bcb8ca08a2bfe917e817afc05dbbb3) |
+| `AgentNFA` (V4.1) | [`0x71cE46099E4b2a2434111C009A7E9CFd69747c8E`](https://bscscan.com/address/0x71cE46099E4b2a2434111C009A7E9CFd69747c8E) |
+| `PolicyGuardV4` | [`0x25d17eA0e3Bcb8CA08a2BFE917E817AFc05dbBB3`](https://bscscan.com/address/0x25d17eA0e3Bcb8CA08a2BFE917E817AFc05dbBB3) |
 | `SubscriptionManager` | [`0x66487D5509005825C85EB3AAE06c3Ec443eF7359`](https://bscscan.com/address/0x66487D5509005825C85EB3AAE06c3Ec443eF7359) |
 | `ListingManagerV2` | [`0x1f9CE85bD0FF75acc3D92eB79f1Eb472f0865071`](https://bscscan.com/address/0x1f9CE85bD0FF75acc3D92eB79f1Eb472f0865071) |
-| **Security Policies** | |
-| `SpendingLimitPolicyV2` | [`0xd942dEe00d65c8012E39037a7a77Bc50645e5338`](https://bscscan.com/address/0xd942dEe00d65c8012E39037a7a77Bc50645e5338) |
-| `ReceiverGuardPolicyV2` | [`0x54809f7B7801dD9689bb99dbb4d7Ac4bfcDd6d46`](https://bscscan.com/address/0x54809f7B7801dD9689bb99dbb4d7Ac4bfcDd6d46) |
-| `DeFiGuardPolicyV2` | [`0xB248AF39b849fB10c271f13220c86be4cb56eD0e`](https://bscscan.com/address/0xB248AF39b849fB10c271f13220c86be4cb56eD0e) |
-| `CooldownPolicyV2` | [`0x1169d1B2A6f597da152f153437376729371735ea`](https://bscscan.com/address/0x1169d1B2A6f597da152f153437376729371735ea) |
+| `ProtocolRegistry` | [`0x1A5EA54a3beaf4fba75f73581cf6A945746E6DF1`](https://bscscan.com/address/0x1A5EA54a3beaf4fba75f73581cf6A945746E6DF1) |
+| `LearningModule` | [`0x019765B2669b1A3FfffE8213E9bd0b0D8eb00892`](https://bscscan.com/address/0x019765B2669b1A3FfffE8213E9bd0b0D8eb00892) |
+| **Security Policies (V5)** | |
+| `SpendingLimitPolicyV2` | [`0x28efC8D513D44252EC26f710764ADe22b2569115`](https://bscscan.com/address/0x28efC8D513D44252EC26f710764ADe22b2569115) |
+| `ReceiverGuardPolicyV2` | [`0x7A9618ec6c2e9D93712326a7797A829895c0AfF6`](https://bscscan.com/address/0x7A9618ec6c2e9D93712326a7797A829895c0AfF6) |
+| `DeFiGuardPolicyV2` | [`0xD1b6a97400Bc62ed6000714E9810F36Fc1a251f1`](https://bscscan.com/address/0xD1b6a97400Bc62ed6000714E9810F36Fc1a251f1) |
+| `CooldownPolicy` | [`0x0E0B2006DE4d68543C4069249a075C215510efDB`](https://bscscan.com/address/0x0E0B2006DE4d68543C4069249a075C215510efDB) |
 
 *(All contracts are verified and open-source on BscScan)*
 
