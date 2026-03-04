@@ -70,7 +70,7 @@ SHLL represents AI Agents as **BAP-578** tokens on BNB Chain.
 ## Requirements
 
 - [Foundry](https://book.getfoundry.sh/) (`forge`, `cast`, `anvil`)
-- Solidity `^0.8.24`
+- Solidity `0.8.33`
 
 ```bash
 curl -L https://foundry.paradigm.xyz | bash
@@ -83,7 +83,7 @@ foundryup
 # Build
 forge build
 
-# Test (278 tests)
+# Test (283 tests)
 forge test -vvv
 
 # Deploy
@@ -97,18 +97,20 @@ forge script script/DeployV32PostAudit.s.sol --rpc-url $RPC_URL --broadcast --ve
 ```
 src/
 ├── AgentNFA.sol              # ERC-721 + BAP-578 agent identity
-├── AgentAccountV2.sol        # ERC-6551 vault (holds agent capital)
+├── AgentNFAExtensions.sol    # Template/instance extension logic
+├── AgentAccount.sol          # ERC-6551 vault V1
+├── AgentAccountV2.sol        # ERC-6551 vault V2 (holds agent capital)
 ├── PolicyGuardV4.sol         # On-chain firewall / policy engine
 ├── ListingManagerV2.sol      # Marketplace & rental logic
 ├── SubscriptionManager.sol   # Subscription model
 ├── ProtocolRegistry.sol      # DeFi protocol whitelist
 ├── LearningModule.sol        # Agent learning tracking
-├── interfaces/               # All interfaces (IPolicy, ICommittable, etc.)
-├── policies/                 # SpendingLimit, Cooldown, DeFiGuard, ReceiverGuard
-├── libs/                     # CalldataDecoder, utilities
-└── types/                    # Shared type definitions
+├── interfaces/               # IPolicy, ICommittable, IBAP578, IERC8004, etc.
+├── policies/                 # SpendingLimitV2, CooldownPolicy, DeFiGuardV2, ReceiverGuardV2, etc.
+├── libs/                     # CalldataDecoder, Errors, PolicyKeys
+└── types/                    # Shared type definitions (Action.sol)
 
-test/                         # 278 Foundry test cases
+test/                         # 283 Foundry test cases
 script/                       # Deployment & migration scripts
 ```
 
@@ -117,9 +119,9 @@ script/                       # Deployment & migration scripts
 | Component | Repository | Description |
 |---|---|---|
 | **Contracts** (this repo) | [shll-protocol/shll](https://github.com/shll-protocol/shll) | Core Solidity protocol |
-| **Skills** | [shll-protocol/shll-skills](https://github.com/shll-protocol/shll-skills) | MCP Server & CLI tools (v5.4+) |
-| **Policy SDK** | [shll-protocol/shll-policy-sdk](https://github.com/shll-protocol/shll-policy-sdk) | TypeScript SDK for BAP-578 & PolicyGuard |
-| **Indexer** | [shll-protocol/shll-indexer](https://github.com/shll-protocol/shll-indexer) | Real-time Ponder indexing service |
+| **Skills** | [kledx/shll-skills](https://github.com/kledx/shll-skills) | MCP Server & CLI tools (v5.4+) |
+| **Policy SDK** | [kledx/shll-policy-sdk](https://github.com/kledx/shll-policy-sdk) | TypeScript SDK for BAP-578 & PolicyGuard |
+| **Indexer** | [kledx/shll-indexer](https://github.com/kledx/shll-indexer) | Real-time Ponder indexing service |
 
 ## Contributing
 
