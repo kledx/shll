@@ -86,9 +86,9 @@ forge script script/DeployV32PostAudit.s.sol --rpc-url $RPC_URL --broadcast --ve
 | 组件 | 仓库 | 功能 |
 |---|---|---|
 | **核心合约** (本仓库) | [shll-protocol/shll](https://github.com/shll-protocol/shll) | SHLL 协议智能合约 |
-| **AI 技能工具** | [kledx/shll-skills](https://github.com/kledx/shll-skills) | MCP Server & CLI 工具链 |
-| **风控 SDK** | [kledx/shll-policy-sdk](https://github.com/kledx/shll-policy-sdk) | TypeScript SDK |
-| **数据索引器** | [kledx/shll-indexer](https://github.com/kledx/shll-indexer) | 基于 Ponder 的实时索引 |
+| **AI 技能工具** | [shll-protocol/shll-skills](https://github.com/shll-protocol/shll-skills) | MCP Server & CLI 工具链 |
+| **风控 SDK** | [shll-protocol/shll-policy-sdk](https://github.com/shll-protocol/shll-policy-sdk) | TypeScript SDK |
+| **数据索引器** | [shll-protocol/shll-indexer](https://github.com/shll-protocol/shll-indexer) | 基于 Ponder 的实时索引 |
 
 ## 开源许可
 

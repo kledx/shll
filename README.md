@@ -119,9 +119,9 @@ script/                       # Deployment & migration scripts
 | Component | Repository | Description |
 |---|---|---|
 | **Contracts** (this repo) | [shll-protocol/shll](https://github.com/shll-protocol/shll) | Core Solidity protocol |
-| **Skills** | [kledx/shll-skills](https://github.com/kledx/shll-skills) | MCP Server & CLI tools (v5.4+) |
-| **Policy SDK** | [kledx/shll-policy-sdk](https://github.com/kledx/shll-policy-sdk) | TypeScript SDK for BAP-578 & PolicyGuard |
-| **Indexer** | [kledx/shll-indexer](https://github.com/kledx/shll-indexer) | Real-time Ponder indexing service |
+| **Skills** | [shll-protocol/shll-skills](https://github.com/shll-protocol/shll-skills) | MCP Server & CLI tools (v5.4+) |
+| **Policy SDK** | [shll-protocol/shll-policy-sdk](https://github.com/shll-protocol/shll-policy-sdk) | TypeScript SDK for BAP-578 & PolicyGuard |
+| **Indexer** | [shll-protocol/shll-indexer](https://github.com/shll-protocol/shll-indexer) | Real-time Ponder indexing service |
 
 ## Contributing
 
