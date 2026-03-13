@@ -275,7 +275,7 @@ contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
 
     /// @notice Migrate an instance whose ERC-4907 lease expired to a new instance with long lease
     /// @dev Subscriber calls this. Mints a new instance from the same template with 10-year lease.
-    ///      User must manually withdraw from old vault and deposit into new vault.
+    ///      Transfers subscription config to new instance. User must manually move vault funds.
     /// @param oldInstanceId The expired instance token ID
     /// @param listingId The listing used for the original mint
     /// @return newInstanceId The new instance token ID with refreshed lease
@@ -294,7 +294,8 @@ contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
         if (IAgentNFA(listing.nfa).templateOf(oldInstanceId) != listing.tokenId)
             revert Errors.InvalidInitParams();
 
-        // Verify: caller must have an active subscription
+        // Read old subscription data (needed for creating new sub)
+        ISubscriptionManager.Subscription memory oldSub;
         if (subscriptionManager != address(0)) {
             ISubscriptionManager.SubscriptionStatus status =
                 ISubscriptionManager(subscriptionManager).getEffectiveStatus(oldInstanceId);
@@ -302,6 +303,7 @@ contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
                 status != ISubscriptionManager.SubscriptionStatus.GracePeriod) {
                 revert Errors.SubscriptionNotActive(oldInstanceId);
             }
+            oldSub = ISubscriptionManager(subscriptionManager).getSubscription(oldInstanceId);
         }
 
         // Mint new instance with 10-year lease
@@ -317,6 +319,18 @@ contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
         bytes32 templateKey = IAgentNFA(listing.nfa).templateKeyOf(listing.tokenId);
         if (templateKey != bytes32(0)) {
             IPolicyGuard(policyGuard).bindInstance(newInstanceId, templateKey);
+        }
+
+        // Create subscription for new instance (inherits old sub's pricing and period)
+        if (subscriptionManager != address(0) && oldSub.subscriber != address(0)) {
+            ISubscriptionManager(subscriptionManager).createSubscription(
+                newInstanceId,
+                msg.sender,
+                listingId,
+                oldSub.pricePerPeriod,
+                oldSub.periodDays,
+                oldSub.gracePeriodDays
+            );
         }
 
         address newVault = IAgentNFA(listing.nfa).accountOf(newInstanceId);

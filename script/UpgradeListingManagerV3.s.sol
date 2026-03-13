@@ -4,9 +4,10 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {ListingManagerV2} from "../src/ListingManagerV2.sol";
 import {IAgentNFA} from "../src/interfaces/IAgentNFA.sol";
+import {ISubscriptionManager} from "../src/interfaces/ISubscriptionManager.sol";
 
 /// @title UpgradeListingManagerV3 — Deploy ListingManagerV2 with migrateLease + 10-year lease
-/// @notice Deploys new ListingManagerV2, wires it, recreates listing, and switches NFA.
+/// @notice Deploys new ListingManagerV2, wires it, recreates listing, and switches NFA + SubManager.
 ///
 ///   forge script script/UpgradeListingManagerV3.s.sol \
 ///     --account deployer --rpc-url https://bsc-dataseed1.binance.org \
@@ -27,13 +28,13 @@ contract UpgradeListingManagerV3 is Script {
 
         // 1. Deploy new ListingManagerV2
         ListingManagerV2 newLM = new ListingManagerV2();
-        console.log("[1/5] New ListingManagerV2:", address(newLM));
+        console.log("[1/6] New ListingManagerV2:", address(newLM));
 
         // 2. Wire contracts
         newLM.setAgentNFA(NFA);
         newLM.setPolicyGuard(GUARD);
         newLM.setSubscriptionManager(SUB_MANAGER);
-        console.log("[2/5] Wired: NFA + Guard + SubManager");
+        console.log("[2/6] Wired: NFA + Guard + SubManager");
 
         // 3. Recreate the default listing
         bytes32 listingId = newLM.createTemplateListing(
@@ -42,15 +43,22 @@ contract UpgradeListingManagerV3 is Script {
             PRICE_PER_DAY,
             MIN_DAYS
         );
-        console.log("[3/5] Listing created:", vm.toString(listingId));
+        console.log("[3/6] Listing created:", vm.toString(listingId));
 
         // 4. Switch NFA to use new ListingManager
-        //    setListingManager is not in IAgentNFA interface, use direct call
-        (bool ok,) = NFA.call(
+        (bool ok1,) = NFA.call(
             abi.encodeWithSignature("setListingManager(address)", address(newLM))
         );
-        require(ok, "setListingManager failed");
-        console.log("[4/5] NFA.setListingManager -> new LM");
+        require(ok1, "NFA.setListingManager failed");
+        console.log("[4/6] NFA.setListingManager -> new LM");
+
+        // 5. Switch SubscriptionManager to use new ListingManager
+        //    Required so migrateLease can call createSubscription for new tokens
+        (bool ok2,) = SUB_MANAGER.call(
+            abi.encodeWithSignature("setListingManager(address)", address(newLM))
+        );
+        require(ok2, "SubManager.setListingManager failed");
+        console.log("[5/6] SubManager.setListingManager -> new LM");
 
         vm.stopBroadcast();
 
