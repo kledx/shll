@@ -492,14 +492,15 @@ contract AgentNFA is
     /// @param tokenId The agent token ID
     /// @param operator The operator address (e.g. runner wallet)
     /// @param opExpires Operator expiry (must not exceed rent expiry)
+    /// @dev V4: falls back to SubscriptionManager when ERC-4907 lease expired
     function setOperator(
         uint256 tokenId,
         address operator,
         uint64 opExpires
     ) external {
-        address renter = userOf(tokenId);
+        (address renter, uint64 maxExpires) = _resolveRenterAndExpires(tokenId);
         if (msg.sender != renter) revert Errors.Unauthorized();
-        if (opExpires > _userExpires[tokenId])
+        if (opExpires > maxExpires)
             revert Errors.OperatorExceedsLease();
         _setOperator(tokenId, operator, opExpires);
     }
@@ -513,10 +514,11 @@ contract AgentNFA is
         if (msg.sender != permit.operator)
             revert Errors.InvalidOperatorSubmitter();
 
-        address renter = userOf(permit.tokenId);
+        // V4: resolve renter via ERC-4907 or SubscriptionManager
+        (address renter, uint64 maxExpires) = _resolveRenterAndExpires(permit.tokenId);
         if (renter == address(0) || renter != permit.renter)
             revert Errors.Unauthorized();
-        if (permit.expires > _userExpires[permit.tokenId])
+        if (permit.expires > maxExpires)
             revert Errors.OperatorExceedsLease();
 
         uint256 expectedNonce = _operatorNonces[permit.tokenId];
@@ -1020,7 +1022,8 @@ contract AgentNFA is
         Action memory action
     ) internal view {
         address tokenOwner = ownerOf(tokenId);
-        address renter = userOf(tokenId);
+        // V4: resolve renter from ERC-4907 or SubscriptionManager
+        (address renter,) = _resolveRenterAndExpires(tokenId);
 
         if (msg.sender == tokenOwner) {
             // Subscription model enforcement (buyout semantics):
@@ -1071,6 +1074,28 @@ contract AgentNFA is
         // requires an Active subscription record.
         if (status != ISubscriptionManager.SubscriptionStatus.Active) {
             revert Errors.SubscriptionNotActive(tokenId);
+        }
+    }
+
+    /// @dev V4: Resolve renter and max expires from ERC-4907 or SubscriptionManager
+    /// @return renter The resolved renter address
+    /// @return maxExpires The maximum operator expiry allowed
+    function _resolveRenterAndExpires(uint256 tokenId)
+        internal view returns (address renter, uint64 maxExpires)
+    {
+        renter = userOf(tokenId);
+        maxExpires = _userExpires[tokenId];
+        // V4: fallback to SubscriptionManager when ERC-4907 lease expired
+        if (renter == address(0) && subscriptionManager != address(0)) {
+            ISubscriptionManager.SubscriptionStatus status =
+                ISubscriptionManager(subscriptionManager).getEffectiveStatus(tokenId);
+            if (status == ISubscriptionManager.SubscriptionStatus.Active ||
+                status == ISubscriptionManager.SubscriptionStatus.GracePeriod) {
+                ISubscriptionManager.Subscription memory sub =
+                    ISubscriptionManager(subscriptionManager).getSubscription(tokenId);
+                renter = sub.subscriber;
+                maxExpires = sub.currentPeriodEnd;
+            }
         }
     }
 
