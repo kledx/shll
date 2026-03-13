@@ -21,6 +21,9 @@ import {Errors} from "./libs/Errors.sol";
 /// @dev Extends ListingManager with SubscriptionManager integration.
 ///      Deploy as replacement: AgentNFA.setListingManager(ListingManagerV2)
 contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
+    /// @notice V3: long-lived ERC-4907 lease (SubscriptionManager is the real expiry gate)
+    uint64 public constant LEASE_DURATION_SECONDS = 10 * 365 days;
+
     struct Listing {
         address nfa;
         uint256 tokenId;
@@ -204,7 +207,8 @@ contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
         if (msg.value < totalCost)
             revert Errors.InsufficientPayment(totalCost, msg.value);
 
-        uint64 expires = uint64(block.timestamp + uint256(daysToRent) * 1 days);
+        // V3: set ERC-4907 lease to 10 years — SubscriptionManager is the real expiry gate
+        uint64 expires = uint64(block.timestamp) + LEASE_DURATION_SECONDS;
         instanceId = IAgentNFA(listing.nfa).mintInstanceFromTemplate(
             msg.sender,
             listing.tokenId,
@@ -255,6 +259,68 @@ contract ListingManagerV2 is Ownable2Step, ReentrancyGuard {
             expires,
             totalCost
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //              V3: LEASE MIGRATION
+    // ═══════════════════════════════════════════════════════════
+
+    event LeaseMigrated(
+        uint256 indexed oldInstanceId,
+        uint256 indexed newInstanceId,
+        address indexed subscriber,
+        address newVault,
+        uint64 newExpires
+    );
+
+    /// @notice Migrate an instance whose ERC-4907 lease expired to a new instance with long lease
+    /// @dev Subscriber calls this. Mints a new instance from the same template with 10-year lease.
+    ///      User must manually withdraw from old vault and deposit into new vault.
+    /// @param oldInstanceId The expired instance token ID
+    /// @param listingId The listing used for the original mint
+    /// @return newInstanceId The new instance token ID with refreshed lease
+    function migrateLease(
+        uint256 oldInstanceId,
+        bytes32 listingId
+    ) external nonReentrant returns (uint256 newInstanceId) {
+        Listing storage listing = listings[listingId];
+        if (!listing.active) revert Errors.ListingNotFound();
+
+        // Verify: caller must be the owner of the old instance
+        if (IERC721(listing.nfa).ownerOf(oldInstanceId) != msg.sender)
+            revert Errors.Unauthorized();
+
+        // Verify: old instance must be from this template
+        if (IAgentNFA(listing.nfa).templateOf(oldInstanceId) != listing.tokenId)
+            revert Errors.InvalidInitParams();
+
+        // Verify: caller must have an active subscription
+        if (subscriptionManager != address(0)) {
+            ISubscriptionManager.SubscriptionStatus status =
+                ISubscriptionManager(subscriptionManager).getEffectiveStatus(oldInstanceId);
+            if (status != ISubscriptionManager.SubscriptionStatus.Active &&
+                status != ISubscriptionManager.SubscriptionStatus.GracePeriod) {
+                revert Errors.SubscriptionNotActive(oldInstanceId);
+            }
+        }
+
+        // Mint new instance with 10-year lease
+        uint64 newExpires = uint64(block.timestamp) + LEASE_DURATION_SECONDS;
+        newInstanceId = IAgentNFA(listing.nfa).mintInstanceFromTemplate(
+            msg.sender,
+            listing.tokenId,
+            newExpires,
+            ""  // No special params for migration
+        );
+
+        // Bind to PolicyGuard
+        bytes32 templateKey = IAgentNFA(listing.nfa).templateKeyOf(listing.tokenId);
+        if (templateKey != bytes32(0)) {
+            IPolicyGuard(policyGuard).bindInstance(newInstanceId, templateKey);
+        }
+
+        address newVault = IAgentNFA(listing.nfa).accountOf(newInstanceId);
+        emit LeaseMigrated(oldInstanceId, newInstanceId, msg.sender, newVault, newExpires);
     }
 
     // ═══════════════════════════════════════════════════════════
