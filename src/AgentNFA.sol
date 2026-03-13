@@ -547,7 +547,7 @@ contract AgentNFA is
     /// @notice Clear the current operator authorization
     function clearOperator(uint256 tokenId) external {
         address tokenOwner = ownerOf(tokenId);
-        address renter = userOf(tokenId);
+        (address renter,) = _resolveRenterAndExpires(tokenId);
         if (msg.sender != tokenOwner && msg.sender != renter)
             revert Errors.Unauthorized();
         _setOperator(tokenId, address(0), 0);
@@ -895,9 +895,10 @@ contract AgentNFA is
     }
 
     /// @dev Require msg.sender to be owner or renter of the token
+    /// @dev V4: subscription-aware renter resolution
     function _requireOwnerOrRenter(uint256 tokenId) internal view {
         address tokenOwner = ownerOf(tokenId);
-        address renter = userOf(tokenId);
+        (address renter,) = _resolveRenterAndExpires(tokenId);
         if (msg.sender != tokenOwner && msg.sender != renter) {
             revert Errors.Unauthorized();
         }
